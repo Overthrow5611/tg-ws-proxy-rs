@@ -19,21 +19,19 @@ callback rather than by scraping the log, so `--quiet` never hides it.
 
 ## Staying connected on a phone
 
-- On a Wi-Fi <-> mobile data handover the app restarts the native proxy about
-  two seconds after the new network comes up. Upstream WebSockets dialled on
-  the old network are dead by then, and nothing would otherwise tell the proxy.
-  Telegram reconnects to the same port on its own.
 - When the arguments carry no `--secret`, the app generates one on first start
-  and reuses it, so those restarts never invalidate the proxy saved in
-  Telegram. Pass your own `--secret` to override it.
+  and reuses it, so a Stop/Start or a system restart of the service never
+  invalidates the proxy saved in Telegram. Pass your own `--secret` to
+  override it.
 - On first launch the app asks once to be excluded from battery optimisation.
-  It holds no wakelock, so the exemption only stops the system from cutting its
-  network while the screen is off. Vendor ROMs (MagicOS, MIUI, One UI) have
-  their own background killers on top of that, which need to be switched off
-  in their settings by hand.
-- The default arguments include `--pool-size 1`: on a phone the one Telegram
-  client gains little from four spare connections per DC, and each costs a TLS
-  handshake at start and after every restart.
+  It holds no wakelock, so the exemption costs nothing; it mainly matters on
+  vendor ROMs (MagicOS, MIUI, One UI), whose own background killers also need
+  to be switched off in their settings by hand.
+- The default arguments in this fork use direct WebSocket only
+  (`--pinned-upstream ws`) with a 3 s connect timeout and a single spare
+  connection per DC. On networks where the community Cloudflare domains and
+  raw TCP are both blocked, falling back to them only kept a failed client
+  waiting; dropping it at once lets Telegram retry on a fresh connection.
 
 ## Quick Settings tile
 

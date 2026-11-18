@@ -53,12 +53,11 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Under battery optimisation the system (and much harder, vendor ROMs such
-     * as MagicOS or MIUI) cuts a background app's network or kills its service
-     * while the screen is off, which is when the proxy "randomly" stops.  The
-     * proxy holds no wakelock, so the exemption costs no extra battery: it only
-     * keeps the sockets Telegram is already using alive.  Asked once; the user
-     * can still change it in the app's battery settings.
+     * Stock Android leaves a foreground service its network in Doze, but vendor
+     * ROMs such as MagicOS or MIUI still kill or restrict optimised apps while
+     * the screen is off, which is when the proxy "randomly" stops.  The proxy
+     * holds no wakelock, so the exemption costs no extra battery.  Asked once;
+     * the user can still change it in the app's battery settings.
      */
     @SuppressLint("BatteryLife")
     private fun requestBatteryExemptionOnce() {
