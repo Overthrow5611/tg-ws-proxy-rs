@@ -17,6 +17,24 @@ empty until you remove it. That is the default and not a failed start: drop
 lines. The `tg://` link appears either way — it reaches the UI from the listen
 callback rather than by scraping the log, so `--quiet` never hides it.
 
+## Staying connected on a phone
+
+- On a Wi-Fi <-> mobile data handover the app restarts the native proxy about
+  two seconds after the new network comes up. Upstream WebSockets dialled on
+  the old network are dead by then, and nothing would otherwise tell the proxy.
+  Telegram reconnects to the same port on its own.
+- When the arguments carry no `--secret`, the app generates one on first start
+  and reuses it, so those restarts never invalidate the proxy saved in
+  Telegram. Pass your own `--secret` to override it.
+- On first launch the app asks once to be excluded from battery optimisation.
+  It holds no wakelock, so the exemption only stops the system from cutting its
+  network while the screen is off. Vendor ROMs (MagicOS, MIUI, One UI) have
+  their own background killers on top of that, which need to be switched off
+  in their settings by hand.
+- The default arguments include `--pool-size 1`: on a phone the one Telegram
+  client gains little from four spare connections per DC, and each costs a TLS
+  handshake at start and after every restart.
+
 ## Quick Settings tile
 
 Pull down the notification shade, open the tile editor (the pencil icon) and

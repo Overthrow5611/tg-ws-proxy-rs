@@ -8,8 +8,12 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -22,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.core.content.edit
+import java.security.SecureRandom
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -35,6 +40,27 @@ class ProxyService : Service() {
      * notification and stop instead of leaving "Running" up with no listener.
      */
     private var proxyStarted = false
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var destroyed = false
+
+    /** Arguments of the current run, kept so a network change can restart it as-is. */
+    private var currentArgs: String? = null
+
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var defaultNetwork: Network? = null
+    private var networkLost = false
+
+    /**
+     * Upstream WebSockets are bound to the network they were dialled on.  After
+     * Wi-Fi <-> mobile handover they are dead but nothing tells the proxy (no
+     * FIN arrives over a network that is gone), so Telegram sits on
+     * "Connecting…" until its own timeouts fire.  Restarting the native proxy
+     * drops the pool and every bridge at once; Telegram reconnects to the same
+     * port and secret within a second.  Debounced because a handover usually
+     * reports several networks in quick succession.
+     */
+    private val restartRunnable = Runnable { restartForNetworkChange() }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -81,6 +107,8 @@ class ProxyService : Service() {
     }
 
     override fun onDestroy() {
+        destroyed = true
+        unwatchNetwork()
         scope.cancel()
         stopNative()
         super.onDestroy()
@@ -88,10 +116,11 @@ class ProxyService : Service() {
 
     private fun startProxy(args: String) {
         prefs().edit { putString(PREF_ARGS, args) }
+        currentArgs = args
         ProxyBridge.clearError()
         goForeground(getString(R.string.status_starting))
         proxyStarted = true
-        val error = NativeProxy.nativeStart(args)
+        val error = NativeProxy.nativeStart(withPersistentSecret(args))
         if (error != null) {
             proxyStarted = false
             ProxyBridge.reportError(error)
@@ -108,6 +137,7 @@ class ProxyService : Service() {
             ProxyBridge.setRunning(true)
             if (NativeProxy.nativeIsRunning()) {
                 goForeground(getString(R.string.status_running))
+                watchNetwork()
             } else {
                 // The worker may already have exited (e.g. a --check run that
                 // finished during nativeStart) before the optimistic flip, in
@@ -130,6 +160,7 @@ class ProxyService : Service() {
 
     private fun stopProxy() {
         proxyStarted = false
+        unwatchNetwork()
         // Deliberately no `ProxyBridge.setRunning(false)` here.  The shim
         // refuses to start while the previous run is winding down, and the
         // worker only reports the stop once it is startable again, so
@@ -142,6 +173,76 @@ class ProxyService : Service() {
         stopNative()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    /**
+     * Without `--secret` the native side picks a random one per start, so every
+     * restart (network change, START_STICKY) would invalidate the proxy saved
+     * in Telegram.  Generate one once and reuse it.
+     */
+    private fun withPersistentSecret(args: String): String {
+        if (SECRET_FLAG.containsMatchIn(args)) return args
+        val prefs = prefs()
+        val secret = prefs.getString(PREF_SECRET, null) ?: ByteArray(16).let { bytes ->
+            SecureRandom().nextBytes(bytes)
+            bytes.joinToString("") { "%02x".format(it) }
+        }.also { prefs.edit { putString(PREF_SECRET, it) } }
+        return "$args --secret $secret"
+    }
+
+    private fun watchNetwork() {
+        if (networkCallback != null) return
+        val cm = getSystemService(ConnectivityManager::class.java) ?: return
+        defaultNetwork = cm.activeNetwork
+        networkLost = false
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                // Fires once right after registration with the current network.
+                if (network == defaultNetwork && !networkLost) return
+                defaultNetwork = network
+                networkLost = false
+                mainHandler.removeCallbacks(restartRunnable)
+                mainHandler.postDelayed(restartRunnable, NETWORK_RESTART_DELAY_MS)
+            }
+
+            override fun onLost(network: Network) {
+                if (network == defaultNetwork) {
+                    networkLost = true
+                    mainHandler.removeCallbacks(restartRunnable)
+                }
+            }
+        }
+        try {
+            cm.registerDefaultNetworkCallback(callback, mainHandler)
+            networkCallback = callback
+        } catch (_: RuntimeException) {
+            // TooManyRequestsException or a vendor SecurityException: the proxy
+            // still works, it just will not follow network changes.
+        }
+    }
+
+    private fun unwatchNetwork() {
+        mainHandler.removeCallbacks(restartRunnable)
+        val callback = networkCallback ?: return
+        networkCallback = null
+        try {
+            getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(callback)
+        } catch (_: RuntimeException) {
+        }
+    }
+
+    private fun restartForNetworkChange() {
+        val args = currentArgs ?: return
+        if (!proxyStarted || destroyed) return
+        // Cleared first so the `running` collector in onCreate does not take the
+        // worker's stop report for the end of the service.
+        proxyStarted = false
+        goForeground(getString(R.string.status_reconnecting))
+        stopNative {
+            if (!destroyed && !NativeProxy.nativeIsRunning()) {
+                startProxy(args)
+            }
+        }
     }
 
     private fun ensureChannel() {
@@ -184,9 +285,12 @@ class ProxyService : Service() {
         const val ACTION_STOP = "io.github.valnesfjord.tgwsproxyrs.STOP"
         const val EXTRA_ARGS = "args"
         const val DEFAULT_ARGS =
-            "--default-domains --cf-balance --quiet --host 127.0.0.1 --link-ip 127.0.0.1"
+            "--default-domains --cf-balance --pool-size 1 --quiet --host 127.0.0.1 --link-ip 127.0.0.1"
         const val PREFS = "tg_ws_proxy"
         const val PREF_ARGS = "args"
+        private const val PREF_SECRET = "secret"
+        private val SECRET_FLAG = Regex("""(^|\s)--secret(\s|=|$)""")
+        private const val NETWORK_RESTART_DELAY_MS = 2_000L
 
         private const val CHANNEL_ID = "proxy"
         private const val NOTIFICATION_ID = 1
@@ -213,7 +317,8 @@ class ProxyService : Service() {
          */
         private const val STOP_REPORT_TIMEOUT_MS = 3_000L
 
-        private fun stopNative() {
+        /** [then] runs on the main thread once the worker has reported its stop. */
+        private fun stopNative(then: (() -> Unit)? = null) {
             stopExecutor.execute {
                 if (NativeProxy.nativeIsRunning()) {
                     NativeProxy.nativeStop()
@@ -229,6 +334,7 @@ class ProxyService : Service() {
                     // let this one start.
                     ProxyBridge.setRunning(false)
                 }
+                then?.let { Handler(Looper.getMainLooper()).post(it) }
             }
         }
 
