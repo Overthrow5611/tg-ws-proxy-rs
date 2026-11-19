@@ -96,6 +96,16 @@ the PR otherwise. In the same commit, **update `package.metadata.android.version
 to `(MAJOR*10000 + MINOR*100 + PATCH)*10` (e.g. `2.3.1` -> `203010`); the Android Gradle build
 validates this consistency check and will fail otherwise.
 
+## This fork
+
+`Overthrow5611/tg-ws-proxy-rs` is a personal fork whose `main` is built by CI into the
+debug APK the owner installs on a phone. Every change pushed to `main` bumps the patch version
+(`Cargo.toml` `version` + `version_code`, the root package's line in `Cargo.lock`) and adds a
+short `docs/release-notes/<version>.md`, so the running build is identifiable from the
+`tg-ws-proxy-rs v…` line in the app log. Debug builds are signed with the committed
+`android/app/debug.keystore`; do not replace it, or the next APK will not install over the
+current one.
+
 ## Releases
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which needs nothing done by hand
