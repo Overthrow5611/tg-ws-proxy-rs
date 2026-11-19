@@ -34,6 +34,27 @@ callback rather than by scraping the log, so `--quiet` never hides it.
   raw TCP are both blocked, falling back to them only kept a failed client
   waiting; dropping it at once lets Telegram retry on a fresh connection.
 
+## Reliability and status (fork)
+
+- **Autostart.** If the proxy was left running, it comes back after a reboot
+  or an app update (`BOOT_COMPLETED`, `MY_PACKAGE_REPLACED`). Stopping it in
+  the app turns this off until the next Start. Vendor ROMs deliver these only
+  with the app's autostart permission on.
+- **Auto-restart.** A run that reached its listener and then died is restarted
+  with backoff (2 s doubling to 60 s; a run that lasted a minute resets it).
+  A run that never listened (bad arguments, port taken, `--check`) still
+  stops, since restarting it would fail the same way.
+- **Notification status.** Active Telegram connections and traffic of closed
+  sessions, polled every 5 s from `stats.rs` via `nativeStats()`. Handler time
+  stops in deep sleep, so the poll never wakes the device.
+- **Presets and detailed log.** Chips fill in the direct or direct + Cloudflare
+  arguments; the switch adds or removes `--quiet`. Copy and Share export the
+  on-screen log.
+- **Staggered dial.** A direct TCP connect that has not completed after 1 s
+  gets a second one on a new source port; the first handshake wins. DPI that
+  drops flows at the SYN picks them per 5-tuple, so kernel retransmits on the
+  same port fail with the first SYN while a new port gets a fresh roll.
+
 ## Quick Settings tile
 
 Pull down the notification shade, open the tile editor (the pencil icon) and

@@ -9,7 +9,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.SystemClock
+import android.text.format.Formatter
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -37,6 +41,22 @@ class ProxyService : Service() {
      */
     private var proxyStarted = false
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** Arguments of the current run, kept so a crashed run can be restarted as-is. */
+    private var currentArgs: String? = null
+    private var runStartedAt = 0L
+    private var restartAttempt = 0
+    private val restartRunnable = Runnable { restartAfterFailure() }
+
+    private var statusText: String? = null
+    private val statsRunnable = object : Runnable {
+        override fun run() {
+            refreshStatus()
+            mainHandler.postDelayed(this, STATS_INTERVAL_MS)
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -46,8 +66,18 @@ class ProxyService : Service() {
             ProxyBridge.running.collect { isRunning ->
                 if (proxyStarted && !isRunning) {
                     proxyStarted = false
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
+                    stopStats()
+                    // A run that never reached its listener failed on its
+                    // configuration (bad args, port taken, a finished --check):
+                    // restarting it would only fail again.  One that was
+                    // serving and died, or a retry already in progress, is
+                    // worth another go.
+                    if (ProxyBridge.listenedSinceStart || restartAttempt > 0) {
+                        scheduleRestart()
+                    } else {
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf()
+                    }
                 }
             }
         }
@@ -82,19 +112,40 @@ class ProxyService : Service() {
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacks(restartRunnable)
+        stopStats()
+        ProxyBridge.setRestarting(false)
         scope.cancel()
         stopNative()
         super.onDestroy()
     }
 
-    private fun startProxy(args: String) {
-        prefs().edit { putString(PREF_ARGS, args) }
+    /**
+     * [retrying] marks a restart of a run that died on its own: the saved
+     * arguments are left as they are (the field may have been edited since),
+     * and a failure schedules the next attempt instead of stopping.
+     */
+    private fun startProxy(args: String, retrying: Boolean = false) {
+        mainHandler.removeCallbacks(restartRunnable)
+        if (!retrying) {
+            restartAttempt = 0
+            prefs().edit { putString(PREF_ARGS, args) }
+        }
+        ProxyBridge.setRestarting(false)
+        currentArgs = args
+        runStartedAt = SystemClock.elapsedRealtime()
+        ProxyBridge.listenedSinceStart = false
         ProxyBridge.clearError()
         goForeground(getString(R.string.status_starting))
         proxyStarted = true
         val error = NativeProxy.nativeStart(withPersistentSecret(args))
         if (error != null) {
             proxyStarted = false
+            if (retrying) {
+                ProxyBridge.onLog(error)
+                scheduleRestart()
+                return
+            }
             ProxyBridge.reportError(error)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -103,12 +154,18 @@ class ProxyService : Service() {
             // reported the error while we were inside it, and the optimistic
             // flip below would paint "Running" over that error.
             proxyStarted = false
+            if (retrying) {
+                scheduleRestart()
+                return
+            }
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         } else {
             ProxyBridge.setRunning(true)
             if (NativeProxy.nativeIsRunning()) {
+                prefs().edit { putBoolean(PREF_WAS_RUNNING, true) }
                 goForeground(getString(R.string.status_running))
+                startStats()
             } else {
                 // The worker may already have exited (e.g. a --check run that
                 // finished during nativeStart) before the optimistic flip, in
@@ -131,6 +188,11 @@ class ProxyService : Service() {
 
     private fun stopProxy() {
         proxyStarted = false
+        mainHandler.removeCallbacks(restartRunnable)
+        restartAttempt = 0
+        ProxyBridge.setRestarting(false)
+        stopStats()
+        prefs().edit { putBoolean(PREF_WAS_RUNNING, false) }
         // Deliberately no `ProxyBridge.setRunning(false)` here.  The shim
         // refuses to start while the previous run is winding down, and the
         // worker only reports the stop once it is startable again, so
@@ -158,6 +220,72 @@ class ProxyService : Service() {
             bytes.joinToString("") { "%02x".format(it) }
         }.also { prefs.edit { putString(PREF_SECRET, it) } }
         return "$args --secret $secret"
+    }
+
+    private fun scheduleRestart() {
+        if (SystemClock.elapsedRealtime() - runStartedAt > STABLE_RUN_MS) {
+            restartAttempt = 0
+        }
+        val delay = (RESTART_BASE_MS shl restartAttempt.coerceAtMost(5))
+            .coerceAtMost(RESTART_MAX_MS)
+        restartAttempt++
+        ProxyBridge.setRestarting(true)
+        ProxyBridge.onLog(getString(R.string.log_restarting, delay / 1000))
+        goForeground(getString(R.string.status_restarting))
+        mainHandler.removeCallbacks(restartRunnable)
+        mainHandler.postDelayed(restartRunnable, delay)
+    }
+
+    private fun restartAfterFailure() {
+        val args = currentArgs
+        if (args == null) {
+            ProxyBridge.setRestarting(false)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return
+        }
+        if (NativeProxy.nativeIsRunning()) {
+            // Someone (the tile, the UI) started a run while we waited.
+            ProxyBridge.setRestarting(false)
+            proxyStarted = true
+            ProxyBridge.setRunning(true)
+            goForeground(getString(R.string.status_running))
+            startStats()
+            return
+        }
+        startProxy(args, retrying = true)
+    }
+
+    /**
+     * Polled rather than pushed: Handler time stops in deep sleep, so this
+     * never wakes the device, and the notification is only re-posted when the
+     * text actually changed.
+     */
+    private fun startStats() {
+        mainHandler.removeCallbacks(statsRunnable)
+        statusText = null
+        mainHandler.postDelayed(statsRunnable, STATS_INTERVAL_MS)
+    }
+
+    private fun stopStats() {
+        mainHandler.removeCallbacks(statsRunnable)
+        statusText = null
+    }
+
+    private fun refreshStatus() {
+        if (!proxyStarted) return
+        val parts = NativeProxy.nativeStats()?.split(' ')?.mapNotNull { it.toLongOrNull() }
+        if (parts == null || parts.size != 3) return
+        val text = getString(
+            R.string.status_running_stats,
+            parts[0],
+            Formatter.formatShortFileSize(this, parts[2]),
+            Formatter.formatShortFileSize(this, parts[1]),
+        )
+        if (text != statusText) {
+            statusText = text
+            goForeground(text)
+        }
     }
 
     private fun ensureChannel() {
@@ -189,6 +317,8 @@ class ProxyService : Service() {
             .setContentText(text)
             .setContentIntent(open)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
             .addAction(0, getString(R.string.stop), stop)
             .build()
     }
@@ -203,10 +333,27 @@ class ProxyService : Service() {
             "--dc-ip 2:149.154.167.220 --dc-ip 4:149.154.167.220 --pinned-upstream ws " +
             "--ws-connect-timeout 4 --ws-fail-probe-timeout 4 --pool-size 1 --quiet " +
             "--host 127.0.0.1 --link-ip 127.0.0.1"
+
+        /** [DEFAULT_ARGS] with the community Cloudflare domains as a fallback tier. */
+        const val DIRECT_CF_ARGS =
+            "--dc-ip 2:149.154.167.220 --dc-ip 4:149.154.167.220 --default-domains " +
+            "--ip-fail-cooldown 30 --ws-connect-timeout 4 --ws-fail-probe-timeout 4 " +
+            "--pool-size 1 --quiet --host 127.0.0.1 --link-ip 127.0.0.1"
         const val PREFS = "tg_ws_proxy"
         const val PREF_ARGS = "args"
+
+        /** The user left the proxy running; [BootReceiver] brings it back. */
+        const val PREF_WAS_RUNNING = "was_running"
         private const val PREF_SECRET = "secret"
         private val SECRET_FLAG = Regex("""(^|\s)--secret(\s|=|$)""")
+
+        private const val RESTART_BASE_MS = 2_000L
+        private const val RESTART_MAX_MS = 60_000L
+
+        /** A run that lasted this long resets the restart backoff. */
+        private const val STABLE_RUN_MS = 60_000L
+
+        private const val STATS_INTERVAL_MS = 5_000L
 
         private const val CHANNEL_ID = "proxy"
         private const val NOTIFICATION_ID = 1

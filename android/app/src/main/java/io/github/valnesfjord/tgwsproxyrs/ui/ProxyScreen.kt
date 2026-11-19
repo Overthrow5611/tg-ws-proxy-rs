@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -17,6 +18,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -59,6 +63,8 @@ fun TgWsTheme(content: @Composable () -> Unit) {
 fun ProxyScreen(viewModel: ProxyViewModel) {
     val args by viewModel.args.collectAsStateWithLifecycle()
     val running by viewModel.running.collectAsStateWithLifecycle()
+    val restarting by viewModel.restarting.collectAsStateWithLifecycle()
+    val active = running || restarting
     val tgLink by viewModel.tgLink.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val logs = viewModel.logs
@@ -104,6 +110,19 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
                 .padding(padding)
                 .padding(16.dp),
         ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ProxyViewModel.PRESETS.forEach { preset ->
+                    FilterChip(
+                        selected = ProxyViewModel.matches(args, preset),
+                        onClick = { viewModel.applyPreset(preset) },
+                        label = { Text(stringResource(preset.label)) },
+                        enabled = !active,
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
             OutlinedTextField(
                 value = args,
                 onValueChange = viewModel::updateArgs,
@@ -111,8 +130,21 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
                 label = { Text(stringResource(R.string.args_label)) },
                 minLines = 3,
                 maxLines = 8,
-                enabled = !running,
+                enabled = !active,
             )
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = ProxyViewModel.isVerbose(args),
+                    onCheckedChange = viewModel::setVerbose,
+                    enabled = !active,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    stringResource(R.string.verbose_log),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
 
             Spacer(Modifier.height(12.dp))
 
@@ -122,14 +154,20 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Button(
-                    onClick = { if (running) viewModel.stop() else viewModel.start() },
+                    onClick = { if (active) viewModel.stop() else viewModel.start() },
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text(stringResource(if (running) R.string.stop else R.string.start))
+                    Text(stringResource(if (active) R.string.stop else R.string.start))
                 }
                 StatusDot(running)
                 Text(
-                    stringResource(if (running) R.string.status_running else R.string.status_stopped),
+                    stringResource(
+                        when {
+                            running -> R.string.status_running
+                            restarting -> R.string.status_restarting
+                            else -> R.string.status_stopped
+                        },
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
@@ -156,11 +194,19 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
             Spacer(Modifier.height(12.dp))
             HorizontalDivider()
             Spacer(Modifier.height(8.dp))
-            Text(
-                stringResource(R.string.log_label),
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    stringResource(R.string.log_label),
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = viewModel::copyLog, enabled = logs.isNotEmpty()) {
+                    Text(stringResource(R.string.copy_log))
+                }
+                TextButton(onClick = viewModel::shareLog, enabled = logs.isNotEmpty()) {
+                    Text(stringResource(R.string.share_log))
+                }
+            }
 
             SelectionContainer(modifier = Modifier.fillMaxSize()) {
                 LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {

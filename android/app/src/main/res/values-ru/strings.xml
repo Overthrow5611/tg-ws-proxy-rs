@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TG WS Proxy</string>
+    <string name="app_title">TG WS Proxy Rust</string>
+    <string name="args_label">Аргументы командной строки</string>
+    <string name="start">Старт</string>
+    <string name="stop">Стоп</string>
+    <string name="status_running">Работает</string>
+    <string name="status_stopped">Остановлен</string>
+    <string name="status_starting">Запуск…</string>
+    <string name="open_telegram_link">Открыть ссылку в Telegram</string>
+    <string name="log_label">Лог</string>
+    <string name="notification_channel">Прокси</string>
+    <string name="telegram_missing">Telegram не установлен</string>
+    <string name="browser_missing">Браузер не установлен</string>
+    <string name="view_on_github">Открыть на GitHub</string>
+    <string name="status_restarting">Перезапуск…</string>
+    <string name="status_running_stats">Работает · соединений: %1$d · ↓%2$s ↑%3$s</string>
+    <string name="log_restarting">Прокси неожиданно остановился, перезапуск через %1$d с</string>
+    <string name="preset_direct">Прямое</string>
+    <string name="preset_direct_cf">Прямое + Cloudflare</string>
+    <string name="verbose_log">Подробный лог</string>
+    <string name="copy_log">Копировать</string>
+    <string name="share_log">Поделиться</string>
+    <string name="share_log_title">Поделиться логом</string>
+    <string name="log_copied">Лог скопирован</string>
+</resources>

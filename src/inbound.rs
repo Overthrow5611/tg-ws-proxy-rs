@@ -243,6 +243,7 @@ impl<I: Inbound> Spawn for I {
     ) {
         tokio::spawn(async move {
             let _permit = permit;
+            let _client = crate::stats::ClientGuard::new();
             serve(&*self, stream, peer, config, pool, runtime).await;
         });
     }

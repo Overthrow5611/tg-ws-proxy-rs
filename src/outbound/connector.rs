@@ -116,9 +116,38 @@ async fn connect_direct(
     port: u16,
     timeout: Duration,
 ) -> Result<TcpStream, OutboundError> {
-    match tokio::time::timeout(timeout, connect_tcp(host, port)).await {
+    match tokio::time::timeout(timeout, connect_staggered(host, port)).await {
         Ok(result) => result.map_err(OutboundError::failed),
         Err(_) => Err(OutboundError::timed_out("TCP connect timed out")),
+    }
+}
+
+/// How long a direct dial may go unanswered before a second one joins it.
+/// A healthy handshake to a Telegram or Cloudflare edge takes well under half
+/// of this, so the second dial only ever starts on a path that is losing SYNs.
+const STAGGER: Duration = Duration::from_secs(1);
+
+/// Throttling DPI drops whole flows at the SYN, picking them per 5-tuple, so
+/// the kernel's own SYN retransmits (same source port, same flow) fail with the
+/// first one.  A second dial gets a new source port and a fresh roll; whichever
+/// handshake completes first wins and the other is dropped.  The futures are
+/// boxed to keep the per-connection handler state small.
+async fn connect_staggered(host: &str, port: u16) -> Result<TcpStream, String> {
+    let mut first = Box::pin(connect_tcp(host, port));
+    tokio::select! {
+        result = &mut first => return result,
+        () = tokio::time::sleep(STAGGER) => {}
+    }
+    let mut second = Box::pin(connect_tcp(host, port));
+    tokio::select! {
+        result = &mut first => match result {
+            Ok(stream) => Ok(stream),
+            Err(_) => second.await,
+        },
+        result = &mut second => match result {
+            Ok(stream) => Ok(stream),
+            Err(_) => first.await,
+        },
     }
 }
 

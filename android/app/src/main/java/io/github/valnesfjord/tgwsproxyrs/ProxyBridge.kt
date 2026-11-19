@@ -36,6 +36,21 @@ object ProxyBridge {
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    /**
+     * [ProxyService] is waiting to restart a run that died on its own.  The
+     * UI shows Stop for it, so the user can cancel the wait.
+     */
+    private val _restarting = MutableStateFlow(false)
+    val restarting: StateFlow<Boolean> = _restarting.asStateFlow()
+
+    /** Set once the current run reached its listener; see [ProxyService]. */
+    @Volatile
+    var listenedSinceStart = false
+
+    fun setRestarting(value: Boolean) {
+        _restarting.value = value
+    }
+
     fun setRunning(value: Boolean) {
         _running.value = value
         if (!value) {
@@ -64,6 +79,7 @@ object ProxyBridge {
     }
 
     fun onListening(link: String) {
+        listenedSinceStart = true
         _tgLink.value = link
         _running.value = true
     }

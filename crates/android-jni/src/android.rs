@@ -22,6 +22,7 @@ use tracing_subscriber::{EnvFilter, Registry, fmt::MakeWriter, reload};
 
 use tg_ws_proxy_rs::config::Config;
 use tg_ws_proxy_rs::server;
+use tg_ws_proxy_rs::stats;
 
 static JVM: OnceLock<jni::JavaVM> = OnceLock::new();
 /// Cached in [`JNI_OnLoad`] / the first `native*` call, while the thread still
@@ -126,6 +127,26 @@ pub extern "system" fn Java_io_github_valnesfjord_tgwsproxyrs_NativeProxy_native
         .into_value();
 }
 
+/// `"<active clients> <bytes up> <bytes down>"`.  A string rather than a
+/// `long[]` keeps this on the one return path the shim already has.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_valnesfjord_tgwsproxyrs_NativeProxy_nativeStats<'caller>(
+    mut unowned_env: EnvUnowned<'caller>,
+    class: JClass<'caller>,
+) -> jstring {
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<jstring> {
+            cache_native_class(env, &class);
+            let s = stats::snapshot();
+            throw_string(
+                env,
+                &format!("{} {} {}", s.active_clients, s.bytes_up, s.bytes_down),
+            )
+        })
+        .into_outcome()
+        .into_value()
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_valnesfjord_tgwsproxyrs_NativeProxy_nativeIsRunning<
     'caller,
@@ -222,6 +243,7 @@ fn start_proxy(args: &str) -> Result<(), String> {
     }
 
     let config = Config::try_from_cli_line(args)?;
+    stats::reset_totals();
     install_logging(&config);
     server::install_crypto_provider();
 

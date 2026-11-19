@@ -1933,6 +1933,7 @@ fn log_session_closed(
     bytes_down: u64,
     start: Instant,
 ) {
+    crate::stats::add_session(bytes_up, bytes_down);
     info!(
         "[{}] DC{}{} {} session closed by {}: ↑{}  ↓{}  {:.1}s",
         label,

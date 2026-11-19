@@ -25,6 +25,10 @@ object NativeProxy {
     @JvmStatic
     external fun nativeIsRunning(): Boolean
 
+    /** `"<active clients> <bytes up> <bytes down>"`, see `stats.rs`. */
+    @JvmStatic
+    external fun nativeStats(): String?
+
     @JvmStatic
     fun onNativeLog(line: String) {
         ProxyBridge.onLog(line)
