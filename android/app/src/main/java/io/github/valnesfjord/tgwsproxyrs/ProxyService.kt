@@ -371,7 +371,7 @@ class ProxyService : Service() {
 
         /** The user left the proxy running; [BootReceiver] brings it back. */
         const val PREF_WAS_RUNNING = "was_running"
-        private const val PREF_SECRET = "secret"
+        internal const val PREF_SECRET = "secret"
         private val SECRET_FLAG = Regex("""(^|\s)--secret(\s|=|$)""")
         private val CHECK_FLAG = Regex("""(^|\s)--check(\s|=|$)""")
 

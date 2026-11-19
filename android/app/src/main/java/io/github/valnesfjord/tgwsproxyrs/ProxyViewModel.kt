@@ -5,7 +5,9 @@ import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.annotation.StringRes
 import io.github.valnesfjord.tgwsproxyrs.ui.Accent
@@ -20,7 +22,17 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Socket
+import java.net.URL
+import javax.net.ssl.SNIHostName
+import javax.net.ssl.SSLSocket
+import javax.net.ssl.SSLSocketFactory
 
 class ProxyViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences(ProxyService.PREFS, 0)
@@ -104,6 +116,154 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // ── Network check ────────────────────────────────────────────────────────
+
+    /** One path's result: handshakes that completed out of [tries], and their mean time. */
+    data class PathResult(val ok: Int, val tries: Int, val avgMs: Long?)
+
+    data class NetCheck(val direct: PathResult, val cloudflare: PathResult)
+
+    private val _netCheck = MutableStateFlow<NetCheck?>(null)
+    val netCheck: StateFlow<NetCheck?> = _netCheck.asStateFlow()
+
+    private val _netChecking = MutableStateFlow(false)
+    val netChecking: StateFlow<Boolean> = _netChecking.asStateFlow()
+
+    /**
+     * TLS handshakes to the two places the presets send traffic: the direct
+     * WebSocket endpoint (149.154.167.220 with Telegram's SNI, what
+     * `--dc-ip 2/4` dials) and a Cloudflare edge (what the community domains
+     * sit behind).  Only on request, never in the background.
+     */
+    fun runNetCheck() {
+        if (_netChecking.value) return
+        _netChecking.value = true
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                NetCheck(
+                    direct = probe(DIRECT_IP, DIRECT_SNI),
+                    cloudflare = probe(CLOUDFLARE_HOST, CLOUDFLARE_HOST),
+                )
+            }
+            _netCheck.value = result
+            _netChecking.value = false
+        }
+    }
+
+    private fun probe(host: String, sni: String): PathResult {
+        val times = mutableListOf<Long>()
+        repeat(PROBE_TRIES) {
+            val started = SystemClock.elapsedRealtime()
+            try {
+                Socket().use { raw ->
+                    raw.connect(InetSocketAddress(host, 443), PROBE_TIMEOUT_MS)
+                    raw.soTimeout = PROBE_TIMEOUT_MS
+                    val factory = SSLSocketFactory.getDefault() as SSLSocketFactory
+                    (factory.createSocket(raw, sni, 443, true) as SSLSocket).use { tls ->
+                        tls.sslParameters = tls.sslParameters.apply {
+                            serverNames = listOf(SNIHostName(sni))
+                        }
+                        tls.startHandshake()
+                    }
+                }
+                times += SystemClock.elapsedRealtime() - started
+            } catch (_: Exception) {
+            }
+        }
+        return PathResult(times.size, PROBE_TRIES, times.takeIf { it.isNotEmpty() }?.average()?.toLong())
+    }
+
+    // ── Update check ─────────────────────────────────────────────────────────
+
+    sealed interface UpdateState {
+        data object Checking : UpdateState
+        data class Available(val version: String) : UpdateState
+        data object UpToDate : UpdateState
+        data object Failed : UpdateState
+    }
+
+    private val _update = MutableStateFlow<UpdateState?>(null)
+    val update: StateFlow<UpdateState?> = _update.asStateFlow()
+
+    val currentVersion: String = runCatching {
+        application.packageManager.getPackageInfo(application.packageName, 0).versionName
+    }.getOrNull() ?: "?"
+
+    /** Reads the fork's Cargo.toml on GitHub; one request, only when asked. */
+    fun checkForUpdate() {
+        if (_update.value == UpdateState.Checking) return
+        _update.value = UpdateState.Checking
+        viewModelScope.launch {
+            val latest = withContext(Dispatchers.IO) {
+                runCatching {
+                    val connection = URL(FORK_CARGO_TOML).openConnection() as HttpURLConnection
+                    connection.connectTimeout = 8_000
+                    connection.readTimeout = 8_000
+                    try {
+                        connection.inputStream.bufferedReader().useLines { lines ->
+                            lines.firstNotNullOfOrNull { VERSION_LINE.matchEntire(it.trim())?.groupValues?.get(1) }
+                        }
+                    } finally {
+                        connection.disconnect()
+                    }
+                }.getOrNull()
+            }
+            _update.value = when {
+                latest == null -> UpdateState.Failed
+                isNewer(latest, currentVersion) -> UpdateState.Available(latest)
+                else -> UpdateState.UpToDate
+            }
+        }
+    }
+
+    fun openBuilds() = openUrl(FORK_ACTIONS)
+
+    // ── Settings backup ──────────────────────────────────────────────────────
+
+    fun exportSettings(uri: Uri) {
+        val app = getApplication<Application>()
+        val json = JSONObject().apply {
+            put("format", BACKUP_FORMAT)
+            put("args", _args.value)
+            prefs.getString(ProxyService.PREF_SECRET, null)?.let { put("secret", it) }
+            put("theme", _appearance.value.mode.name)
+            put("accent", _appearance.value.accent.name)
+            put("amoled", _appearance.value.amoled)
+        }
+        val ok = runCatching {
+            app.contentResolver.openOutputStream(uri, "wt")!!.use { it.write(json.toString(2).toByteArray()) }
+        }.isSuccess
+        toast(if (ok) R.string.backup_saved else R.string.backup_failed)
+    }
+
+    fun importSettings(uri: Uri) {
+        val app = getApplication<Application>()
+        val ok = runCatching {
+            val text = app.contentResolver.openInputStream(uri)!!.use { it.readBytes().decodeToString() }
+            val json = JSONObject(text)
+            require(json.optString("format") == BACKUP_FORMAT)
+            json.optString("args").takeIf { it.isNotBlank() }?.let(::updateArgs)
+            json.optString("secret").takeIf { SECRET_HEX.matches(it) }?.let { secret ->
+                prefs.edit { putString(ProxyService.PREF_SECRET, secret) }
+            }
+            val current = _appearance.value
+            saveAppearance(
+                Appearance(
+                    mode = runCatching { ThemeMode.valueOf(json.getString("theme")) }.getOrDefault(current.mode),
+                    accent = runCatching { Accent.valueOf(json.getString("accent")) }
+                        .getOrDefault(current.accent)
+                        .let { if (it == Accent.DYNAMIC && !dynamicColorAvailable) Accent.BLUE else it },
+                    amoled = json.optBoolean("amoled", current.amoled),
+                ),
+            )
+        }.isSuccess
+        toast(if (ok) R.string.backup_restored else R.string.backup_failed)
+    }
+
+    private fun toast(@StringRes message: Int) {
+        Toast.makeText(getApplication(), message, Toast.LENGTH_SHORT).show()
+    }
+
     /** Active clients, bytes up, bytes down; null if the shim had nothing to say. */
     fun readStats(): Triple<Long, Long, Long>? {
         val parts = NativeProxy.nativeStats()?.split(' ')?.mapNotNull { it.toLongOrNull() }
@@ -170,8 +330,10 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun openRepo() {
-        val uri = "https://github.com/valnesfjord/tg-ws-proxy-rs".toUri()
+    fun openRepo() = openUrl(FORK_REPO)
+
+    private fun openUrl(url: String) {
+        val uri = url.toUri()
         val intent = Intent(Intent.ACTION_VIEW, uri).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
@@ -189,6 +351,32 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         private const val PREF_THEME = "theme"
         private const val PREF_ACCENT = "accent"
         private const val PREF_AMOLED = "amoled"
+
+        private const val DIRECT_IP = "149.154.167.220"
+        private const val DIRECT_SNI = "kws2.web.telegram.org"
+        private const val CLOUDFLARE_HOST = "cloudflare.com"
+        private const val PROBE_TRIES = 3
+        private const val PROBE_TIMEOUT_MS = 4_000
+
+        private const val FORK_REPO = "https://github.com/Overthrow5611/tg-ws-proxy-rs"
+        private const val FORK_ACTIONS = "$FORK_REPO/actions/workflows/ci.yml?query=branch%3Amain"
+        private const val FORK_CARGO_TOML =
+            "https://raw.githubusercontent.com/Overthrow5611/tg-ws-proxy-rs/main/Cargo.toml"
+        private val VERSION_LINE = Regex("""version\s*=\s*"(\d+\.\d+\.\d+)"""")
+
+        private const val BACKUP_FORMAT = "tg-ws-proxy-settings-1"
+        private val SECRET_HEX = Regex("[0-9a-f]{32}")
+
+        /** Whether dotted version [a] is greater than [b]; non-numeric parts count as 0. */
+        fun isNewer(a: String, b: String): Boolean {
+            val x = a.split('.').map { it.toIntOrNull() ?: 0 }
+            val y = b.split('.').map { it.toIntOrNull() ?: 0 }
+            for (i in 0 until maxOf(x.size, y.size)) {
+                val d = x.getOrElse(i) { 0 } - y.getOrElse(i) { 0 }
+                if (d != 0) return d > 0
+            }
+            return false
+        }
 
         val PRESETS = listOf(
             Preset(R.string.preset_direct, ProxyService.DEFAULT_ARGS),

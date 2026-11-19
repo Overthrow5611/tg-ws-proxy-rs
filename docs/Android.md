@@ -59,9 +59,20 @@ callback rather than by scraping the log, so `--quiet` never hides it.
 
 Minimal single-screen layout: a status card (state, connections and traffic,
 Start/Stop, Telegram link), mode chips, collapsible launch settings and log.
-The palette button picks the theme (system, light, dark), the accent (the
+The settings button picks the theme (system, light, dark), the accent (the
 wallpaper's Material You colors on Android 12+, or blue, green, purple,
-orange) and a pure black background for AMOLED screens.
+orange), a pure black background for AMOLED screens and one of four launcher
+icons (one `<activity-alias>` each; exactly one is enabled). It also exports
+and imports the settings as JSON through the system file picker, and checks
+the fork's `Cargo.toml` on GitHub for a newer version, only when asked.
+
+"Check network" runs three TLS handshakes each to the direct WebSocket
+endpoint (149.154.167.220, SNI `kws2.web.telegram.org`) and to a Cloudflare
+edge, and suggests a mode from the result. Nothing runs in the background.
+
+Fork CI signs the release APK with the committed debug key (env vars on the
+build step), so `release/app-arm64-v8a-release.apk` installs over a debug
+build.
 
 The app has no analytics, crash reporting or ad SDKs: its only dependencies
 are AndroidX / Jetpack Compose, and AGP's dependency-metadata block is left out

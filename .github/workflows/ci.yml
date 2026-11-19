@@ -224,6 +224,13 @@ jobs:
       - name: Build debug and release APKs
         working-directory: android
         shell: bash
+        # Fork: sign release with the committed debug key so the CI release
+        # APK installs over the debug one the owner already has.
+        env:
+          TG_ANDROID_STORE_FILE: ${{ github.workspace }}/android/app/debug.keystore
+          TG_ANDROID_STORE_PASSWORD: android
+          TG_ANDROID_KEY_ALIAS: androiddebugkey
+          TG_ANDROID_KEY_PASSWORD: android
         run: ./gradlew :app:assembleDebug :app:assembleRelease
 
       # Both ways the ABI splits can misfire are silent: a splits block that

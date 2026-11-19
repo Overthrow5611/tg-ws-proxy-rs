@@ -747,3 +747,32 @@ async fn await_task(task: tokio::task::JoinHandle<()>) {
         .expect("test helper task timed out")
         .expect("test helper task panicked");
 }
+
+#[tokio::test]
+async fn direct_connect_to_a_closed_port_fails_before_the_second_dial() {
+    let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = probe.local_addr().unwrap().port();
+    drop(probe);
+
+    let started = std::time::Instant::now();
+    let result = OutboundConnector::direct()
+        .connect("127.0.0.1", port, Duration::from_secs(5))
+        .await;
+    assert!(result.is_err());
+    // A refusal arrives long before the 1 s stagger, so it must be returned
+    // as-is rather than waiting for a second dial.
+    assert!(started.elapsed() < Duration::from_millis(900));
+}
+
+#[tokio::test]
+async fn direct_connect_reaches_a_listener() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let accept = tokio::spawn(async move { listener.accept().await.map(|_| ()) });
+
+    let result = OutboundConnector::direct()
+        .connect("127.0.0.1", port, Duration::from_secs(5))
+        .await;
+    assert!(result.is_ok());
+    assert!(accept.await.unwrap().is_ok());
+}

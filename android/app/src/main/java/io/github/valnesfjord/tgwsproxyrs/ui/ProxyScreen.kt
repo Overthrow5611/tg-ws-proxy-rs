@@ -1,6 +1,8 @@
 package io.github.valnesfjord.tgwsproxyrs.ui
 
 import android.text.format.Formatter
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +19,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -58,6 +63,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.valnesfjord.tgwsproxyrs.AppIcon
 import io.github.valnesfjord.tgwsproxyrs.ProxyViewModel
 import io.github.valnesfjord.tgwsproxyrs.R
 import kotlinx.coroutines.delay
@@ -71,7 +77,19 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
     val tgLink by viewModel.tgLink.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val appearance by viewModel.appearance.collectAsStateWithLifecycle()
+    val netCheck by viewModel.netCheck.collectAsStateWithLifecycle()
+    val netChecking by viewModel.netChecking.collectAsStateWithLifecycle()
+    val update by viewModel.update.collectAsStateWithLifecycle()
     val active = running || restarting
+    val context = LocalContext.current
+    var appIcon by remember { mutableStateOf(AppIcon.current(context)) }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri -> uri?.let(viewModel::exportSettings) }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri -> uri?.let(viewModel::importSettings) }
 
     var showAppearance by rememberSaveable { mutableStateOf(false) }
     var showArgs by rememberSaveable { mutableStateOf(false) }
@@ -96,8 +114,8 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
                 actions = {
                     IconButton(onClick = { showAppearance = true }) {
                         Icon(
-                            imageVector = ImageVector.vectorResource(R.drawable.ic_palette),
-                            contentDescription = stringResource(R.string.appearance),
+                            imageVector = ImageVector.vectorResource(R.drawable.ic_settings),
+                            contentDescription = stringResource(R.string.settings),
                         )
                     }
                     IconButton(onClick = viewModel::openRepo) {
@@ -139,6 +157,7 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
                         )
                     }
                 }
+                NetCheckRow(netCheck, netChecking, viewModel::runNetCheck)
             }
 
             Column {
@@ -197,15 +216,65 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
     }
 
     if (showAppearance) {
-        AppearanceDialog(
+        SettingsDialog(
             appearance = appearance,
+            appIcon = appIcon,
+            update = update,
+            currentVersion = viewModel.currentVersion,
             onMode = viewModel::setThemeMode,
             onAccent = viewModel::setAccent,
             onAmoled = viewModel::setAmoled,
+            onIcon = { icon ->
+                AppIcon.apply(context, icon)
+                appIcon = icon
+            },
+            onExport = { exportLauncher.launch(BACKUP_FILE_NAME) },
+            onImport = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
+            onCheckUpdate = viewModel::checkForUpdate,
+            onOpenBuilds = viewModel::openBuilds,
             onDismiss = { showAppearance = false },
         )
     }
 }
+
+@Composable
+private fun NetCheckRow(result: ProxyViewModel.NetCheck?, checking: Boolean, onCheck: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        OutlinedButton(onClick = onCheck, enabled = !checking) {
+            Text(stringResource(if (checking) R.string.net_checking else R.string.net_check))
+        }
+        if (result != null && !checking) {
+            Text(
+                stringResource(R.string.net_direct, pathText(result.direct)),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                stringResource(R.string.net_cloudflare, pathText(result.cloudflare)),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                stringResource(
+                    when {
+                        result.direct.ok * 3 >= result.direct.tries * 2 -> R.string.net_advice_direct
+                        result.cloudflare.ok * 3 >= result.cloudflare.tries * 2 -> R.string.net_advice_cf
+                        result.direct.ok > 0 -> R.string.net_advice_flaky
+                        else -> R.string.net_advice_none
+                    },
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun pathText(path: ProxyViewModel.PathResult): String =
+    if (path.avgMs != null) {
+        stringResource(R.string.net_path_ok, path.ok, path.tries, path.avgMs)
+    } else {
+        stringResource(R.string.net_path_dead, path.ok, path.tries)
+    }
 
 @Composable
 private fun StatusCard(
@@ -364,21 +433,32 @@ private fun LogList(viewModel: ProxyViewModel) {
 }
 
 @Composable
-private fun AppearanceDialog(
+private fun SettingsDialog(
     appearance: Appearance,
+    appIcon: AppIcon,
+    update: ProxyViewModel.UpdateState?,
+    currentVersion: String,
     onMode: (ThemeMode) -> Unit,
     onAccent: (Accent) -> Unit,
     onAmoled: (Boolean) -> Unit,
+    onIcon: (AppIcon) -> Unit,
+    onExport: () -> Unit,
+    onImport: () -> Unit,
+    onCheckUpdate: () -> Unit,
+    onOpenBuilds: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.appearance)) },
+        title = { Text(stringResource(R.string.settings)) },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.done)) }
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            ) {
                 SectionLabel(stringResource(R.string.theme_label))
                 listOf(
                     ThemeMode.SYSTEM to R.string.theme_system,
@@ -428,9 +508,97 @@ private fun AppearanceDialog(
                     Text(stringResource(R.string.amoled), modifier = Modifier.weight(1f))
                     Switch(checked = appearance.amoled, onCheckedChange = onAmoled)
                 }
+
+                SettingsDivider()
+                SectionLabel(stringResource(R.string.icon_label))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.padding(vertical = 8.dp),
+                ) {
+                    AppIcon.entries.forEach { icon ->
+                        IconSwatch(icon, selected = icon == appIcon) { onIcon(icon) }
+                    }
+                }
+                Text(
+                    stringResource(R.string.icon_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                SettingsDivider()
+                SectionLabel(stringResource(R.string.backup_label))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onExport) { Text(stringResource(R.string.backup_export)) }
+                    OutlinedButton(onClick = onImport) { Text(stringResource(R.string.backup_import)) }
+                }
+                Text(
+                    stringResource(R.string.backup_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                SettingsDivider()
+                SectionLabel(stringResource(R.string.update_label))
+                Text(
+                    stringResource(R.string.update_current, currentVersion),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedButton(
+                        onClick = onCheckUpdate,
+                        enabled = update != ProxyViewModel.UpdateState.Checking,
+                    ) { Text(stringResource(R.string.update_check)) }
+                    if (update is ProxyViewModel.UpdateState.Available) {
+                        TextButton(onClick = onOpenBuilds) { Text(stringResource(R.string.update_open)) }
+                    }
+                }
+                val status = when (update) {
+                    null -> null
+                    ProxyViewModel.UpdateState.Checking -> stringResource(R.string.update_checking)
+                    ProxyViewModel.UpdateState.UpToDate -> stringResource(R.string.update_latest)
+                    ProxyViewModel.UpdateState.Failed -> stringResource(R.string.update_failed)
+                    is ProxyViewModel.UpdateState.Available ->
+                        stringResource(R.string.update_available, update.version)
+                }
+                if (status != null) {
+                    Text(status, style = MaterialTheme.typography.bodySmall)
+                }
             }
         },
     )
+}
+
+@Composable
+private fun SettingsDivider() {
+    Spacer(Modifier.height(8.dp))
+    HorizontalDivider()
+    Spacer(Modifier.height(8.dp))
+}
+
+@Composable
+private fun IconSwatch(icon: AppIcon, selected: Boolean, onClick: () -> Unit) {
+    val ring = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant
+    Surface(
+        modifier = Modifier
+            .size(44.dp)
+            .border(if (selected) 3.dp else 1.dp, ring, MaterialTheme.shapes.medium)
+            .padding(4.dp)
+            .selectable(selected = selected, onClick = onClick, role = Role.RadioButton),
+        shape = MaterialTheme.shapes.small,
+        color = icon.background,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = ImageVector.vectorResource(R.drawable.ic_notification),
+                contentDescription = stringResource(icon.label),
+                tint = icon.glyph,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
 }
 
 @Composable
@@ -468,3 +636,4 @@ private fun StatusDot(active: Boolean) {
 }
 
 private const val STATS_POLL_MS = 2_000L
+private const val BACKUP_FILE_NAME = "tg-ws-proxy-settings.json"
