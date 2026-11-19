@@ -27,4 +27,16 @@
     <string name="share_log">Share</string>
     <string name="share_log_title">Share log</string>
     <string name="log_copied">Log copied</string>
+    <string name="appearance">Appearance</string>
+    <string name="theme_label">Theme</string>
+    <string name="theme_system">System default</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="accent_label">Color</string>
+    <string name="accent_dynamic_hint">\"A\" takes the colors from your wallpaper.</string>
+    <string name="amoled">Pure black background</string>
+    <string name="done">Done</string>
+    <string name="mode_label">Mode</string>
+    <string name="launch_settings">Launch settings</string>
+    <string name="stats_line">Connections: %1$d · ↓%2$s · ↑%3$s</string>
 </resources>

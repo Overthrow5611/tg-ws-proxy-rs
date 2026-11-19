@@ -8,6 +8,10 @@ import android.content.Intent
 import android.os.Build
 import android.widget.Toast
 import androidx.annotation.StringRes
+import io.github.valnesfjord.tgwsproxyrs.ui.Accent
+import io.github.valnesfjord.tgwsproxyrs.ui.Appearance
+import io.github.valnesfjord.tgwsproxyrs.ui.ThemeMode
+import io.github.valnesfjord.tgwsproxyrs.ui.dynamicColorAvailable
 import androidx.compose.runtime.mutableStateListOf
 import androidx.core.content.edit
 import androidx.core.net.toUri
@@ -25,6 +29,9 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         prefs.getString(ProxyService.PREF_ARGS, null) ?: ProxyService.DEFAULT_ARGS,
     )
     val args: StateFlow<String> = _args.asStateFlow()
+
+    private val _appearance = MutableStateFlow(loadAppearance())
+    val appearance: StateFlow<Appearance> = _appearance.asStateFlow()
 
     val running = ProxyBridge.running
     val restarting = ProxyBridge.restarting
@@ -69,6 +76,38 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
     fun updateArgs(value: String) {
         _args.value = value
         prefs.edit { putString(ProxyService.PREF_ARGS, value) }
+    }
+
+    fun setThemeMode(mode: ThemeMode) = saveAppearance(_appearance.value.copy(mode = mode))
+
+    fun setAccent(accent: Accent) = saveAppearance(_appearance.value.copy(accent = accent))
+
+    fun setAmoled(amoled: Boolean) = saveAppearance(_appearance.value.copy(amoled = amoled))
+
+    private fun loadAppearance(): Appearance {
+        val defaultAccent = if (dynamicColorAvailable) Accent.DYNAMIC else Accent.BLUE
+        return Appearance(
+            mode = prefs.getString(PREF_THEME, null)
+                ?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM,
+            accent = prefs.getString(PREF_ACCENT, null)
+                ?.let { runCatching { Accent.valueOf(it) }.getOrNull() } ?: defaultAccent,
+            amoled = prefs.getBoolean(PREF_AMOLED, false),
+        )
+    }
+
+    private fun saveAppearance(value: Appearance) {
+        _appearance.value = value
+        prefs.edit {
+            putString(PREF_THEME, value.mode.name)
+            putString(PREF_ACCENT, value.accent.name)
+            putBoolean(PREF_AMOLED, value.amoled)
+        }
+    }
+
+    /** Active clients, bytes up, bytes down; null if the shim had nothing to say. */
+    fun readStats(): Triple<Long, Long, Long>? {
+        val parts = NativeProxy.nativeStats()?.split(' ')?.mapNotNull { it.toLongOrNull() }
+        return if (parts != null && parts.size == 3) Triple(parts[0], parts[1], parts[2]) else null
     }
 
     /** Swap in a preset, keeping the current choice of detailed logging. */
@@ -147,6 +186,9 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         private const val MAX_LOG_LINES = 500
+        private const val PREF_THEME = "theme"
+        private const val PREF_ACCENT = "accent"
+        private const val PREF_AMOLED = "amoled"
 
         val PRESETS = listOf(
             Preset(R.string.preset_direct, ProxyService.DEFAULT_ARGS),

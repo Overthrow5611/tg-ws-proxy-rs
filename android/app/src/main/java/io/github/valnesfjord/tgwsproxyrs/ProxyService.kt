@@ -351,13 +351,20 @@ class ProxyService : Service() {
         const val EXTRA_ARGS = "args"
         const val DEFAULT_ARGS =
             "--dc-ip 2:149.154.167.220 --dc-ip 4:149.154.167.220 --pinned-upstream ws " +
-            "--ws-connect-timeout 4 --ws-fail-probe-timeout 4 --pool-size 1 --quiet " +
+            "--ip-fail-cooldown 0 --ws-connect-timeout 4 --ws-fail-probe-timeout 4 " +
+            "--pool-size 1 --quiet " +
             "--host 127.0.0.1 --link-ip 127.0.0.1"
 
-        /** [DEFAULT_ARGS] with the community Cloudflare domains as a fallback tier. */
+        /**
+         * [DEFAULT_ARGS] with the community Cloudflare domains as a fallback
+         * tier.  `--ip-fail-cooldown 0`: with a fallback configured, a cooled
+         * `--dc-ip` is skipped outright, so one lost SYN would send every
+         * client to Cloudflare for the whole window.  At 0 each client still
+         * tries direct first and only falls back if that dial fails.
+         */
         const val DIRECT_CF_ARGS =
             "--dc-ip 2:149.154.167.220 --dc-ip 4:149.154.167.220 --default-domains " +
-            "--ip-fail-cooldown 30 --ws-connect-timeout 4 --ws-fail-probe-timeout 4 " +
+            "--ip-fail-cooldown 0 --ws-connect-timeout 4 --ws-fail-probe-timeout 4 " +
             "--pool-size 1 --quiet --host 127.0.0.1 --link-ip 127.0.0.1"
         const val PREFS = "tg_ws_proxy"
         const val PREF_ARGS = "args"

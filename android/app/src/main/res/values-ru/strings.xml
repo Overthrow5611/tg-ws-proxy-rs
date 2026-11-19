@@ -24,4 +24,16 @@
     <string name="share_log">Поделиться</string>
     <string name="share_log_title">Поделиться логом</string>
     <string name="log_copied">Лог скопирован</string>
+    <string name="appearance">Оформление</string>
+    <string name="theme_label">Тема</string>
+    <string name="theme_system">Как в системе</string>
+    <string name="theme_light">Светлая</string>
+    <string name="theme_dark">Тёмная</string>
+    <string name="accent_label">Цвет</string>
+    <string name="accent_dynamic_hint">«A» — цвета из обоев.</string>
+    <string name="amoled">Чёрный фон (AMOLED)</string>
+    <string name="done">Готово</string>
+    <string name="mode_label">Режим</string>
+    <string name="launch_settings">Параметры запуска</string>
+    <string name="stats_line">Соединений: %1$d · ↓%2$s · ↑%3$s</string>
 </resources>

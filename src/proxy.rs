@@ -113,6 +113,22 @@ static UPSTREAM_FAIL: CooldownMap<String> = CooldownMap::new();
 /// Per-Worker cooldown for the Cloudflare Worker path.
 static CF_WORKER_FAIL: CooldownMap<String> = CooldownMap::new();
 
+/// Forget every failure cooldown and pending-probe record.
+///
+/// They are process-wide, so an embedder that stops and starts the proxy in
+/// one process (the Android app) would otherwise start a new run with the old
+/// run's verdicts: a `--dc-ip` that timed out a minute ago is skipped from the
+/// first client on, and an address whose probe task died with the old runtime
+/// stays marked as probed and is never re-tested.
+pub fn reset_cooldowns() {
+    WS_FAIL.clear_all();
+    IP_FAIL.clear_all();
+    UPSTREAM_FAIL.clear_all();
+    CF_WORKER_FAIL.clear_all();
+    crate::ws_client::reset_cf_edge_cooldowns();
+    IP_PROBES.lock().unwrap().clear();
+}
+
 fn upstream_key(host: &str, port: u16) -> String {
     format!("{}:{}", host, port)
 }

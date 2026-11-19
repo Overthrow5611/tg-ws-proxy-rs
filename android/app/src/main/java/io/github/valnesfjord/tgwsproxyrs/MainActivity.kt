@@ -16,6 +16,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.net.toUri
@@ -46,7 +48,8 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            TgWsTheme {
+            val appearance by viewModel.appearance.collectAsStateWithLifecycle()
+            TgWsTheme(appearance) {
                 ProxyScreen(viewModel)
             }
         }

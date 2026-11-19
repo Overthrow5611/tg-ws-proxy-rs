@@ -244,6 +244,7 @@ fn start_proxy(args: &str) -> Result<(), String> {
 
     let config = Config::try_from_cli_line(args)?;
     stats::reset_totals();
+    tg_ws_proxy_rs::proxy::reset_cooldowns();
     install_logging(&config);
     server::install_crypto_provider();
 

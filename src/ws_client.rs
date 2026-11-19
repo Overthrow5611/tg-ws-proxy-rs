@@ -90,6 +90,10 @@ impl<K: Eq + Hash> CooldownMap<K> {
         }
     }
 
+    pub(crate) fn clear_all(&self) {
+        *self.entries.lock().unwrap() = None;
+    }
+
     pub(crate) fn active<Q>(&self, key: &Q) -> bool
     where
         K: Borrow<Q>,
@@ -105,6 +109,11 @@ impl<K: Eq + Hash> CooldownMap<K> {
 
 static CF_EDGE_TLS_FAIL: CooldownMap<IpAddr> = CooldownMap::new();
 static CF_EDGE_PLAINTEXT_FAIL: CooldownMap<IpAddr> = CooldownMap::new();
+
+pub(crate) fn reset_cf_edge_cooldowns() {
+    CF_EDGE_TLS_FAIL.clear_all();
+    CF_EDGE_PLAINTEXT_FAIL.clear_all();
+}
 
 /// Cloudflare-specific dial settings shared by proxy, Worker, and pool paths.
 #[derive(Clone, Copy)]

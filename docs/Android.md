@@ -55,6 +55,19 @@ callback rather than by scraping the log, so `--quiet` never hides it.
   drops flows at the SYN picks them per 5-tuple, so kernel retransmits on the
   same port fail with the first SYN while a new port gets a fresh roll.
 
+## Appearance (fork)
+
+Minimal single-screen layout: a status card (state, connections and traffic,
+Start/Stop, Telegram link), mode chips, collapsible launch settings and log.
+The palette button picks the theme (system, light, dark), the accent (the
+wallpaper's Material You colors on Android 12+, or blue, green, purple,
+orange) and a pure black background for AMOLED screens.
+
+The app has no analytics, crash reporting or ad SDKs: its only dependencies
+are AndroidX / Jetpack Compose, and AGP's dependency-metadata block is left out
+of the APK. Its only network traffic is the proxy itself, plus the GitHub fetch
+of the community domain list when `--default-domains` is used.
+
 ## Quick Settings tile
 
 Pull down the notification shade, open the tile editor (the pencil icon) and
