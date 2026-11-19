@@ -43,6 +43,16 @@ class ProxyService : Service() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    /**
+     * Every stop goes through `stopSelf(lastStartId)`, never a bare
+     * `stopSelf()`: a Stop followed quickly by a Start queues two commands,
+     * and an unconditional stop handled first would destroy the service under
+     * the pending `startForegroundService`, which the system then answers with
+     * ForegroundServiceDidNotStartInTimeException.  With the id, the stop is
+     * ignored once a newer start has arrived.
+     */
+    private var lastStartId = 0
+
     /** Arguments of the current run, kept so a crashed run can be restarted as-is. */
     private var currentArgs: String? = null
     private var runStartedAt = 0L
@@ -92,6 +102,7 @@ class ProxyService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        lastStartId = startId
         when (intent?.action) {
             ACTION_START -> {
                 if (NativeProxy.nativeIsRunning()) {
@@ -112,7 +123,7 @@ class ProxyService : Service() {
                     if (args != null) {
                         startProxy(args)
                     } else {
-                        stopSelf()
+                        stopSelf(lastStartId)
                     }
                 }
             }
@@ -215,7 +226,7 @@ class ProxyService : Service() {
         // or none arrives.
         stopNative()
         stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        stopSelf(lastStartId)
     }
 
     /**
@@ -245,7 +256,7 @@ class ProxyService : Service() {
         ProxyBridge.setRestarting(false)
         prefs().edit { putBoolean(PREF_WAS_RUNNING, false) }
         stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        stopSelf(lastStartId)
     }
 
     private fun scheduleRestart() {
@@ -267,7 +278,7 @@ class ProxyService : Service() {
         if (args == null) {
             ProxyBridge.setRestarting(false)
             stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            stopSelf(lastStartId)
             return
         }
         if (NativeProxy.nativeIsRunning()) {
