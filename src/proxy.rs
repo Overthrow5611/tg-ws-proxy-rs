@@ -740,7 +740,7 @@ impl Route<'_> {
         // applies: step over it (otherwise every cold-pool client waits out
         // `--ws-connect-timeout`, twice — once per `kws` record), and come back
         // for it when every other pinned rung has failed.
-        let started = Instant::now();
+        let mut dialed = false;
         let mut cooled_ws = None;
         for (index, tier) in tiers.iter().enumerate() {
             let last_resort = !self.tier_attemptable_after(tiers, index + 1, target_ip);
@@ -765,6 +765,7 @@ impl Route<'_> {
                         cooled_ws = Some(target_ip);
                         continue;
                     }
+                    dialed = true;
                     if let Some(upstream) = self.direct_ws_tier(target_ip).await {
                         return Some(upstream);
                     }
@@ -777,6 +778,7 @@ impl Route<'_> {
                         );
                         continue;
                     };
+                    dialed = true;
                     if let Some(ws) = self.cf_worker(dst, "pinned", last_resort).await {
                         return Some(Upstream::Ws {
                             ws,
@@ -785,11 +787,13 @@ impl Route<'_> {
                     }
                 }
                 UpstreamTier::Cfproxy => {
+                    dialed = true;
                     if let Some(upstream) = self.cf_proxy_tier("pinned").await {
                         return Some(upstream);
                     }
                 }
                 UpstreamTier::Mtproto => {
+                    dialed = true;
                     if let Some(conn) = self.upstream_proxies("pinned", last_resort).await {
                         return Some(Upstream::Mtproto(conn));
                     }
@@ -813,6 +817,7 @@ impl Route<'_> {
         // raw TCP rung the default ladder would leave the client on is not
         // reached from here, a pin dials exactly what it lists.
         if let Some(target_ip) = cooled_ws {
+            dialed = true;
             info!(
                 "[{}] DC{}{} every pinned fallback failed → re-probing {}",
                 self.label, self.dc, self.media, target_ip
@@ -826,14 +831,14 @@ impl Route<'_> {
             "[{}] DC{}{} every pinned upstream failed",
             self.label, self.dc, self.media
         );
-        // A DC with no rung it can dial (DC1 when only `--dc-ip 2/4` is set)
-        // fails in microseconds, and Telegram answers a closed connection by
-        // reconnecting at once: thousands of attempts a second, each one a log
-        // line and a wakeup.  Holding the client for a moment turns that into
-        // Telegram's ordinary retry pace.  Dials that already took their time
-        // are not held further.
-        if let Some(hold) = PINNED_FAIL_HOLD.checked_sub(started.elapsed()) {
-            tokio::time::sleep(hold).await;
+        // A DC with no rung it can dial at all (DC1 when only `--dc-ip 2/4` is
+        // set) fails in microseconds, and Telegram answers a closed connection
+        // by reconnecting at once: thousands of attempts a second, each one a
+        // log line and a wakeup.  Holding the client for a moment turns that
+        // into Telegram's ordinary retry pace.  A ladder that dialled and
+        // failed is not held: its own attempts already set the pace.
+        if !dialed {
+            tokio::time::sleep(PINNED_FAIL_HOLD).await;
         }
         None
     }
