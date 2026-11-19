@@ -159,7 +159,7 @@ fun ProxyScreen(viewModel: ProxyViewModel) {
                 ) {
                     Text(stringResource(if (active) R.string.stop else R.string.start))
                 }
-                StatusDot(running)
+                StatusDot(active)
                 Text(
                     stringResource(
                         when {

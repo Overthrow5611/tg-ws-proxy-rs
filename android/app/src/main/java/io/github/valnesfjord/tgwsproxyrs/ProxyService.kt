@@ -68,16 +68,25 @@ class ProxyService : Service() {
                     proxyStarted = false
                     stopStats()
                     // A run that never reached its listener failed on its
-                    // configuration (bad args, port taken, a finished --check):
-                    // restarting it would only fail again.  One that was
-                    // serving and died, or a retry already in progress, is
-                    // worth another go.
-                    if (ProxyBridge.listenedSinceStart || restartAttempt > 0) {
+                    // configuration (bad args, port taken): restarting it would
+                    // only fail again.  A --check run ends on its own once the
+                    // verdict is in, listener or not.  One that was serving and
+                    // died, or a retry already in progress, is worth another go.
+                    val isCheck = currentArgs?.let { CHECK_FLAG.containsMatchIn(it) } == true
+                    if (!isCheck && (ProxyBridge.listenedSinceStart || restartAttempt > 0)) {
                         scheduleRestart()
                     } else {
-                        stopForeground(STOP_FOREGROUND_REMOVE)
-                        stopSelf()
+                        giveUp()
                     }
+                }
+            }
+        }
+        scope.launch {
+            // Only a run that reached its listener is worth replaying after a
+            // reboot; one that fails on start would just flash an error.
+            ProxyBridge.tgLink.collect { link ->
+                if (link != null && proxyStarted) {
+                    prefs().edit { putBoolean(PREF_WAS_RUNNING, true) }
                 }
             }
         }
@@ -88,6 +97,7 @@ class ProxyService : Service() {
             ACTION_START -> {
                 if (NativeProxy.nativeIsRunning()) {
                     ProxyBridge.setRunning(true)
+                    statusText = null
                     goForeground(getString(R.string.status_running))
                 } else {
                     startProxy(intent.getStringExtra(EXTRA_ARGS) ?: DEFAULT_ARGS)
@@ -147,8 +157,7 @@ class ProxyService : Service() {
                 return
             }
             ProxyBridge.reportError(error)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            giveUp()
         } else if (ProxyBridge.error.value != null) {
             // NativeStart is async: the worker may have already failed and
             // reported the error while we were inside it, and the optimistic
@@ -158,12 +167,10 @@ class ProxyService : Service() {
                 scheduleRestart()
                 return
             }
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            giveUp()
         } else {
             ProxyBridge.setRunning(true)
             if (NativeProxy.nativeIsRunning()) {
-                prefs().edit { putBoolean(PREF_WAS_RUNNING, true) }
                 goForeground(getString(R.string.status_running))
                 startStats()
             } else {
@@ -171,8 +178,11 @@ class ProxyService : Service() {
                 // finished during nativeStart) before the optimistic flip, in
                 // which case nothing will ever flip running back to false.
                 proxyStarted = false
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                if (retrying) {
+                    scheduleRestart()
+                } else {
+                    giveUp()
+                }
             }
         }
     }
@@ -220,6 +230,16 @@ class ProxyService : Service() {
             bytes.joinToString("") { "%02x".format(it) }
         }.also { prefs.edit { putString(PREF_SECRET, it) } }
         return "$args --secret $secret"
+    }
+
+    /** Stop for good: nothing to bring back after a reboot either. */
+    private fun giveUp() {
+        mainHandler.removeCallbacks(restartRunnable)
+        restartAttempt = 0
+        ProxyBridge.setRestarting(false)
+        prefs().edit { putBoolean(PREF_WAS_RUNNING, false) }
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     private fun scheduleRestart() {
@@ -346,6 +366,7 @@ class ProxyService : Service() {
         const val PREF_WAS_RUNNING = "was_running"
         private const val PREF_SECRET = "secret"
         private val SECRET_FLAG = Regex("""(^|\s)--secret(\s|=|$)""")
+        private val CHECK_FLAG = Regex("""(^|\s)--check(\s|=|$)""")
 
         private const val RESTART_BASE_MS = 2_000L
         private const val RESTART_MAX_MS = 60_000L

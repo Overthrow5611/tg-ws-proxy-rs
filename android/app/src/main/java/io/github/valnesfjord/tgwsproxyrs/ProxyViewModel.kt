@@ -153,15 +153,17 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
             Preset(R.string.preset_direct_cf, ProxyService.DIRECT_CF_ARGS),
         )
 
-        private val QUIET = Regex("""(^|\s)--quiet(?=\s|$)""")
+        private val QUIET = Regex("""(^|\s)(--quiet|-q)(?=\s|$)""")
+        private val BLANKS = Regex("""[ \t]{2,}""")
         private val SPACES = Regex("""\s+""")
 
         fun isVerbose(args: String) = !QUIET.containsMatchIn(args)
 
-        fun withoutQuiet(args: String) = QUIET.replace(args, " ").replace(SPACES, " ").trim()
+        /** Drops `--quiet`/`-q`, leaving the user's line breaks alone. */
+        fun withoutQuiet(args: String) = QUIET.replace(args, "$1").replace(BLANKS, " ").trim()
 
         /** Whether [args] is [preset] up to `--quiet` and spacing. */
         fun matches(args: String, preset: Preset) =
-            withoutQuiet(args) == withoutQuiet(preset.args)
+            withoutQuiet(args).replace(SPACES, " ") == withoutQuiet(preset.args).replace(SPACES, " ")
     }
 }

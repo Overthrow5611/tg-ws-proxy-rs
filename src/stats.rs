@@ -3,6 +3,7 @@
 //! Byte totals cover closed sessions only.  Counting live bridges would put an
 //! atomic op on every relayed chunk of every connection; media sessions close
 //! every minute or so, which keeps the totals current enough for a status line.
+//! The Cloudflare HTTP/2 media bridge reports no byte counts and is not included.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 

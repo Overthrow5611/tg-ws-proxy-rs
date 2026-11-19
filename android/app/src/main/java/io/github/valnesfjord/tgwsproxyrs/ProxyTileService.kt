@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 /**
@@ -35,7 +36,9 @@ class ProxyTileService : TileService() {
         ProxyBridge.syncFromNative()
         listening?.cancel()
         listening = scope.launch {
-            ProxyBridge.running.collect(::render)
+            combine(ProxyBridge.running, ProxyBridge.restarting) { running, restarting ->
+                running to restarting
+            }.collect { (running, restarting) -> render(running, restarting) }
         }
     }
 
@@ -52,7 +55,7 @@ class ProxyTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
-        if (ProxyBridge.running.value) {
+        if (ProxyBridge.running.value || ProxyBridge.restarting.value) {
             ProxyService.stop(this)
             return
         }
@@ -72,11 +75,17 @@ class ProxyTileService : TileService() {
         }
     }
 
-    private fun render(running: Boolean) {
+    private fun render(running: Boolean, restarting: Boolean) {
         val tile = qsTile ?: return
-        tile.state = if (running) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+        tile.state = if (running || restarting) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            tile.subtitle = getString(if (running) R.string.status_running else R.string.status_stopped)
+            tile.subtitle = getString(
+                when {
+                    running -> R.string.status_running
+                    restarting -> R.string.status_restarting
+                    else -> R.string.status_stopped
+                },
+            )
         }
         tile.updateTile()
     }
