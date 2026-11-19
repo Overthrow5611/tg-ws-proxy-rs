@@ -129,6 +129,9 @@ pub fn reset_cooldowns() {
     IP_PROBES.lock().unwrap().clear();
 }
 
+/// Minimum time a client whose pinned ladder failed is kept before closing.
+const PINNED_FAIL_HOLD: Duration = Duration::from_secs(3);
+
 fn upstream_key(host: &str, port: u16) -> String {
     format!("{}:{}", host, port)
 }
@@ -737,6 +740,7 @@ impl Route<'_> {
         // applies: step over it (otherwise every cold-pool client waits out
         // `--ws-connect-timeout`, twice — once per `kws` record), and come back
         // for it when every other pinned rung has failed.
+        let started = Instant::now();
         let mut cooled_ws = None;
         for (index, tier) in tiers.iter().enumerate() {
             let last_resort = !self.tier_attemptable_after(tiers, index + 1, target_ip);
@@ -822,6 +826,15 @@ impl Route<'_> {
             "[{}] DC{}{} every pinned upstream failed",
             self.label, self.dc, self.media
         );
+        // A DC with no rung it can dial (DC1 when only `--dc-ip 2/4` is set)
+        // fails in microseconds, and Telegram answers a closed connection by
+        // reconnecting at once: thousands of attempts a second, each one a log
+        // line and a wakeup.  Holding the client for a moment turns that into
+        // Telegram's ordinary retry pace.  Dials that already took their time
+        // are not held further.
+        if let Some(hold) = PINNED_FAIL_HOLD.checked_sub(started.elapsed()) {
+            tokio::time::sleep(hold).await;
+        }
         None
     }
 
