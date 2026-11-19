@@ -11,6 +11,17 @@ android {
         applicationId = "io.github.valnesfjord.tgwsproxyrs"
     }
 
+    // A committed debug key: CI runners otherwise generate a fresh one per run,
+    // so each CI debug APK refuses to install over the previous one.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     dependenciesInfo {
         // Disables dependency metadata when building APKs.
         includeInApk = false
