@@ -17,6 +17,11 @@ permissions:
   contents: write
   actions: read
 
+# One at a time, so two close pushes cannot publish out of order.
+concurrency:
+  group: fork-release
+  cancel-in-progress: false
+
 jobs:
   release:
     if: github.event.workflow_run.event == 'push'
@@ -35,9 +40,9 @@ jobs:
         shell: bash
         run: |
           failed="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" \
-            --jq '[.jobs[] | select(.name | startswith("android")) | select(.conclusion != "success") | .name] | join(", ")')"
+            --jq '[.jobs[] | select((.name | startswith("android")) or .name == "rust" or .name == "release-version") | select(.conclusion != "success" and .conclusion != "skipped") | .name] | join(", ")')"
           if [[ -n "$failed" ]]; then
-            echo "Android jobs not green ($failed); no release."
+            echo "Required jobs not green ($failed); no release."
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -80,7 +85,13 @@ jobs:
             echo "**Which file:** \`tg-ws-proxy-$version-arm64-v8a.apk\` for almost every modern phone;"
             echo "\`universal\` if unsure. Signed with the fork's key, installs over earlier builds."
           } > body.md
+          # Only the highest version may take "Latest".
+          newest="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' \
+            | sed 's/^v//' | { cat; echo "$version"; } | sort -V | tail -n1)"
+          latest=true
+          [[ "$newest" == "$version" ]] || latest=false
           gh release create "v$version" out/*.apk \
             --target "$SHA" \
             --title "v$version" \
+            --latest="$latest" \
             --notes-file body.md

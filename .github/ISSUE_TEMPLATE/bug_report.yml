@@ -28,7 +28,7 @@ body:
     id: mode
     attributes:
       label: Режим
-      options: [Прямое, Прямое + Cloudflare, Свои аргументы]
+      options: [Прямое, Прямое + Cloudflare, Свои параметры запуска]
     validations:
       required: true
   - type: textarea

@@ -34,7 +34,7 @@ Telegram Desktop → MTProto (TCP 1443) → tg-ws-proxy-rs → WS (TLS 443) → 
 
 ### Pre-built binaries
 
-Download from the [Releases](../../releases) page. Linux musl targets also ship
+Download from the [Releases](../../../releases) page. Linux musl targets also ship
 a `-upx` variant that is ~70% smaller on disk, for routers where flash is
 tight — see [docs/Building.md](Building.md#shrinking-the-binary-for-flash-constrained-devices)
 for the RAM trade-off that comes with it.
@@ -75,7 +75,7 @@ The binary lands in `target/release/tg-ws-proxy`. Cross-compiling for OpenWrt
 
 A Jetpack Compose app in `android/` runs the same core as a library: paste the
 CLI flags, start/stop, open the `tg://proxy` link. Install the APK from the
-[Releases](../../releases) page or [F-Droid](https://f-droid.org/packages/io.github.valnesfjord.tgwsproxyrs), or build it from source — see
+[Releases](../../../releases) page or [F-Droid](https://f-droid.org/packages/io.github.valnesfjord.tgwsproxyrs), or build it from source — see
 [docs/Android.md](Android.md).
 
 ### OpenWrt
@@ -386,7 +386,7 @@ cooldown are all documented in [docs/Fallbacks.md](Fallbacks.md).
 | [docs/Android.md](Android.md) | The Android app: Gradle/NDK build, ABI splits, signing, installing and CI |
 | [docs/CfProxy.md](CfProxy.md) | Cloudflare DNS proxy setup, step by step |
 | [docs/CfWorker.md](CfWorker.md) | Cloudflare Worker TCP tunnel setup |
-| [AGENTS.md](AGENTS.md) | Repository layout and conventions for contributors |
+| [AGENTS.md](../AGENTS.md) | Repository layout and conventions for contributors |
 
 Releases and changes are announced on the Telegram channel
 [@tg_ws_proxy_rs](https://t.me/tg_ws_proxy_rs).
