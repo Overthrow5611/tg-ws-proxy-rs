@@ -26,10 +26,10 @@ internal const val TEST_SECRET = "00112233445566778899aabbccddeeff"
 /**
  * Arguments that bring a listener up with no startup network I/O whatsoever.
  *
- * Deliberately not [ProxyService.DEFAULT_ARGS]: that carries
- * `--default-domains`, which fetches a domain list over HTTPS *before* the bind
- * in `src/server.rs`, so on a CI emulator with no route out every start would
- * first have to wait out that failure before `onNativeListening` could fire.
+ * Deliberately not [ProxyService.DEFAULT_ARGS]: those dial Telegram and may be
+ * changed to include `--default-domains`, which fetches a domain list over
+ * HTTPS *before* the bind in `src/server.rs`; on a CI emulator with no route out
+ * every start would first have to wait out that failure.
  *
  * `--host`/`--link-ip` pin both addresses so neither goes through LAN-IP
  * autodetect, `--port 0` lets the kernel choose so nothing can collide with a

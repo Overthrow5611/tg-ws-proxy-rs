@@ -28,8 +28,9 @@ callback rather than by scraping the log, so `--quiet` never hides it.
   vendor ROMs (MagicOS, MIUI, One UI), whose own background killers also need
   to be switched off in their settings by hand.
 - The default arguments in this fork use direct WebSocket only
-  (`--pinned-upstream ws`) with a 3 s connect timeout and a single spare
-  connection per DC. On networks where the community Cloudflare domains and
+  (`--pinned-upstream ws`) with a 4 s connect timeout (also while the DC is in
+  failure cooldown) and a single spare connection per DC. 4 s leaves room for
+  a third SYN, which Linux sends about 3 s after the first. On networks where the community Cloudflare domains and
   raw TCP are both blocked, falling back to them only kept a failed client
   waiting; dropping it at once lets Telegram retry on a fresh connection.
 

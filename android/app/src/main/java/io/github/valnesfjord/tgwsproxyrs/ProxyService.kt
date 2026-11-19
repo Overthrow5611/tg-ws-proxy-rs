@@ -201,7 +201,8 @@ class ProxyService : Service() {
         const val EXTRA_ARGS = "args"
         const val DEFAULT_ARGS =
             "--dc-ip 2:149.154.167.220 --dc-ip 4:149.154.167.220 --pinned-upstream ws " +
-            "--ws-connect-timeout 3 --pool-size 1 --quiet --host 127.0.0.1 --link-ip 127.0.0.1"
+            "--ws-connect-timeout 4 --ws-fail-probe-timeout 4 --pool-size 1 --quiet " +
+            "--host 127.0.0.1 --link-ip 127.0.0.1"
         const val PREFS = "tg_ws_proxy"
         const val PREF_ARGS = "args"
         private const val PREF_SECRET = "secret"
