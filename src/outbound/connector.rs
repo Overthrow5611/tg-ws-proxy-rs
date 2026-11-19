@@ -194,10 +194,29 @@ async fn connect_socks5_proxy(
 }
 
 async fn connect_tcp(host: &str, port: u16) -> Result<TcpStream, String> {
-    TcpStream::connect((host, port))
+    let stream = TcpStream::connect((host, port))
         .await
-        .map_err(|e| format!("TCP connect: {e}"))
+        .map_err(|e| format!("TCP connect: {e}"))?;
+    set_user_timeout(&stream);
+    Ok(stream)
 }
+
+/// DPI boxes that throttle Telegram tend to stop forwarding a flow rather than
+/// reset it, and a handover can strand a socket the same way.  Nothing on the
+/// relay path would notice: the read side waits forever, so Telegram sits on a
+/// half-downloaded file until its own timeouts fire.  TCP_USER_TIMEOUT aborts
+/// the socket once sent data (the client's acks and pings) has gone unacked
+/// this long, without the extra wakeups keepalive probes would cost on a phone.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn set_user_timeout(stream: &TcpStream) {
+    let _ = socket2::SockRef::from(stream).set_tcp_user_timeout(Some(UPSTREAM_USER_TIMEOUT));
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn set_user_timeout(_stream: &TcpStream) {}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const UPSTREAM_USER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
 async fn socks5_target<'a>(
     host: &'a str,

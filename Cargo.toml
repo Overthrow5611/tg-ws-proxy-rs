@@ -47,6 +47,8 @@ tokio = { version = "1", features = [
     "time",
     "sync",
 ] }
+# TCP_USER_TIMEOUT on upstream sockets (already in the tree via tokio).
+socket2 = { version = "0.6", features = ["all"] }
 
 # WebSocket protocol with TLS support
 tokio-tungstenite = { version = "0.24", default-features = false, features = [
