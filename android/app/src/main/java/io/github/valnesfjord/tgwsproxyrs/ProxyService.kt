@@ -72,8 +72,7 @@ class ProxyService : Service() {
                     // only fail again.  A --check run ends on its own once the
                     // verdict is in, listener or not.  One that was serving and
                     // died, or a retry already in progress, is worth another go.
-                    val isCheck = currentArgs?.let { CHECK_FLAG.containsMatchIn(it) } == true
-                    if (!isCheck && (ProxyBridge.listenedSinceStart || restartAttempt > 0)) {
+                    if (worthRestarting()) {
                         scheduleRestart()
                     } else {
                         giveUp()
@@ -177,8 +176,10 @@ class ProxyService : Service() {
                 // The worker may already have exited (e.g. a --check run that
                 // finished during nativeStart) before the optimistic flip, in
                 // which case nothing will ever flip running back to false.
+                // It may also have listened and died already: that is a
+                // crash like any other, not a finished --check.
                 proxyStarted = false
-                if (retrying) {
+                if (retrying || worthRestarting()) {
                     scheduleRestart()
                 } else {
                     giveUp()
@@ -230,6 +231,11 @@ class ProxyService : Service() {
             bytes.joinToString("") { "%02x".format(it) }
         }.also { prefs.edit { putString(PREF_SECRET, it) } }
         return "$args --secret $secret"
+    }
+
+    private fun worthRestarting(): Boolean {
+        val isCheck = currentArgs?.let { CHECK_FLAG.containsMatchIn(it) } == true
+        return !isCheck && (ProxyBridge.listenedSinceStart || restartAttempt > 0)
     }
 
     /** Stop for good: nothing to bring back after a reboot either. */

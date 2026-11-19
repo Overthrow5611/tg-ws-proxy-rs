@@ -34,6 +34,7 @@ class ProxyServiceRestartTest {
 
     @After
     fun tearDown() {
+        Thread.sleep(500)
         ProxyService.stop(context)
         runBlocking { withTimeout(SHUTDOWN_TIMEOUT_MS) { ProxyBridge.restarting.first { !it } } }
         stopAndWait()
@@ -45,6 +46,9 @@ class ProxyServiceRestartTest {
     fun runThatDiesAfterListeningIsRestarted() {
         ProxyService.start(context, OFFLINE_ARGS)
         awaitLink()
+        // Let the service finish its start bookkeeping, as a real run would
+        // before it dies.
+        Thread.sleep(1_000)
 
         // A death the service did not ask for.
         NativeProxy.nativeStop()
@@ -59,6 +63,7 @@ class ProxyServiceRestartTest {
     fun stopIsFinal() {
         ProxyService.start(context, OFFLINE_ARGS)
         awaitLink()
+        Thread.sleep(1_000)
 
         ProxyService.stop(context)
         runBlocking { withTimeout(SHUTDOWN_TIMEOUT_MS) { ProxyBridge.running.first { !it } } }
