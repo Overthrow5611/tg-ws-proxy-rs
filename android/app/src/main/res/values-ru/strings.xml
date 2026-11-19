@@ -68,4 +68,5 @@
     <string name="net_advice_cf">Прямое заблокировано: выбирайте «Прямое + Cloudflare».</string>
     <string name="net_advice_flaky">Прямое работает через раз: оставайтесь на «Прямое», возможны короткие подвисания.</string>
     <string name="net_advice_none">Оба пути не отвечают: Telegram в этой сети сейчас сильно режут.</string>
+    <string name="backup_stop_first">Остановите прокси перед импортом</string>
 </resources>

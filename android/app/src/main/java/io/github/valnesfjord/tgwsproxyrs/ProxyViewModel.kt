@@ -229,35 +229,57 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
             put("theme", _appearance.value.mode.name)
             put("accent", _appearance.value.accent.name)
             put("amoled", _appearance.value.amoled)
+        }.toString(2)
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    // CreateDocument always makes a new file, so plain "w" is
+                    // enough and works with providers that reject "wt".
+                    app.contentResolver.openOutputStream(uri, "w")!!.use { it.write(json.toByteArray()) }
+                }.isSuccess
+            }
+            toast(if (ok) R.string.backup_saved else R.string.backup_failed)
         }
-        val ok = runCatching {
-            app.contentResolver.openOutputStream(uri, "wt")!!.use { it.write(json.toString(2).toByteArray()) }
-        }.isSuccess
-        toast(if (ok) R.string.backup_saved else R.string.backup_failed)
     }
 
+    /**
+     * Refused while a run is up or restarting: the service would keep the
+     * running arguments but pick up the imported secret on its next restart,
+     * silently breaking the proxy saved in Telegram.  Everything is parsed and
+     * validated before anything is written.
+     */
     fun importSettings(uri: Uri) {
+        if (running.value || restarting.value) {
+            toast(R.string.backup_stop_first)
+            return
+        }
         val app = getApplication<Application>()
-        val ok = runCatching {
-            val text = app.contentResolver.openInputStream(uri)!!.use { it.readBytes().decodeToString() }
-            val json = JSONObject(text)
-            require(json.optString("format") == BACKUP_FORMAT)
-            json.optString("args").takeIf { it.isNotBlank() }?.let(::updateArgs)
-            json.optString("secret").takeIf { SECRET_HEX.matches(it) }?.let { secret ->
-                prefs.edit { putString(ProxyService.PREF_SECRET, secret) }
+        viewModelScope.launch {
+            val parsed = withContext(Dispatchers.IO) {
+                runCatching {
+                    val text = app.contentResolver.openInputStream(uri)!!.use { it.readBytes().decodeToString() }
+                    JSONObject(text).also { require(it.optString("format") == BACKUP_FORMAT) }
+                }.getOrNull()
             }
+            if (parsed == null || running.value || restarting.value) {
+                toast(if (parsed == null) R.string.backup_failed else R.string.backup_stop_first)
+                return@launch
+            }
+            fun text(key: String) = if (parsed.has(key) && !parsed.isNull(key)) parsed.optString(key) else null
+            val args = text("args")?.takeIf { it.isNotBlank() }
+            val secret = text("secret")?.takeIf { SECRET_HEX.matches(it) }
             val current = _appearance.value
-            saveAppearance(
-                Appearance(
-                    mode = runCatching { ThemeMode.valueOf(json.getString("theme")) }.getOrDefault(current.mode),
-                    accent = runCatching { Accent.valueOf(json.getString("accent")) }
-                        .getOrDefault(current.accent)
-                        .let { if (it == Accent.DYNAMIC && !dynamicColorAvailable) Accent.BLUE else it },
-                    amoled = json.optBoolean("amoled", current.amoled),
-                ),
+            val appearance = Appearance(
+                mode = text("theme")?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: current.mode,
+                accent = (text("accent")?.let { runCatching { Accent.valueOf(it) }.getOrNull() } ?: current.accent)
+                    .let { if (it == Accent.DYNAMIC && !dynamicColorAvailable) Accent.BLUE else it },
+                amoled = parsed.optBoolean("amoled", current.amoled),
             )
-        }.isSuccess
-        toast(if (ok) R.string.backup_restored else R.string.backup_failed)
+            args?.let(::updateArgs)
+            secret?.let { prefs.edit { putString(ProxyService.PREF_SECRET, it) } }
+            saveAppearance(appearance)
+            toast(R.string.backup_restored)
+        }
     }
 
     private fun toast(@StringRes message: Int) {

@@ -71,4 +71,5 @@
     <string name="net_advice_cf">Direct is blocked: use \"Direct + Cloudflare\".</string>
     <string name="net_advice_flaky">Direct works intermittently: keep \"Direct\", expect short stalls.</string>
     <string name="net_advice_none">Neither path answers: Telegram is heavily blocked on this network right now.</string>
+    <string name="backup_stop_first">Stop the proxy before importing</string>
 </resources>
