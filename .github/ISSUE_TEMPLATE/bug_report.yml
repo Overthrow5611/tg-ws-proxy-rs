@@ -1,0 +1,51 @@
+name: Ошибка
+description: Прокси отваливается, не запускается, что-то сломалось
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Версия приложения
+      description: Видна в Настройках приложения или в первой строке лога (tg-ws-proxy-rs v…)
+      placeholder: 2.7.8
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Телефон и Android
+      placeholder: Honor Magic 7 Pro, Android 15 (MagicOS 9)
+    validations:
+      required: true
+  - type: dropdown
+    id: network
+    attributes:
+      label: Сеть
+      options: [Wi-Fi, Мобильный интернет, Оба]
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Режим
+      options: [Прямое, Прямое + Cloudflare, Свои аргументы]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: Что происходит
+      description: Что делали, что ожидали, что получилось. Когда пропадает связь — после сна, при смене сети, просто так?
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Лог
+      description: Включите «Подробный лог», воспроизведите проблему, нажмите «Копировать» у лога и вставьте сюда.
+      render: text
+  - type: textarea
+    id: netcheck
+    attributes:
+      label: Результат «Проверить сеть»
+      placeholder: "Прямое: 3/3 · 120 мс / Cloudflare: 0/3"

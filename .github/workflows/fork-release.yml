@@ -1,0 +1,86 @@
+# Fork only: publish a GitHub Release with the signed APKs once CI has built
+# and tested a new version on main.
+#
+# CI as a whole never concludes "success" on this fork (the OpenWrt job needs
+# upstream infrastructure), so this gates on the Android jobs themselves. The
+# release is created with GITHUB_TOKEN, and tags pushed by GITHUB_TOKEN do not
+# trigger other workflows, so upstream's tag-driven release.yml stays idle.
+name: Fork release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release:
+    if: github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Check the Android jobs passed and the version is new
+        id: gate
+        shell: bash
+        run: |
+          failed="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" \
+            --jq '[.jobs[] | select(.name | startswith("android")) | select(.conclusion != "success") | .name] | join(", ")')"
+          if [[ -n "$failed" ]]; then
+            echo "Android jobs not green ($failed); no release."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n1)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "v$version already released."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download the APKs from the CI run
+        if: steps.gate.outputs.publish == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: android-apks
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: apks
+
+      - name: Publish the release
+        if: steps.gate.outputs.publish == 'true'
+        shell: bash
+        run: |
+          version="${{ steps.gate.outputs.version }}"
+          mkdir -p out
+          for apk in apks/release/*.apk; do
+            name="$(basename "$apk" .apk)"
+            name="${name#app-}"
+            name="${name%-release}"
+            cp "$apk" "out/tg-ws-proxy-$version-$name.apk"
+          done
+          ls -la out
+          notes="docs/release-notes/$version.md"
+          [[ -f "$notes" ]] || { echo "# v$version" > notes.md; notes=notes.md; }
+          {
+            cat "$notes"
+            echo
+            echo "**Which file:** \`tg-ws-proxy-$version-arm64-v8a.apk\` for almost every modern phone;"
+            echo "\`universal\` if unsure. Signed with the fork's key, installs over earlier builds."
+          } > body.md
+          gh release create "v$version" out/*.apk \
+            --target "$SHA" \
+            --title "v$version" \
+            --notes-file body.md

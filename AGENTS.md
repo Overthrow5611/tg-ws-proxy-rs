@@ -104,7 +104,10 @@ debug APK the owner installs on a phone. Every change pushed to `main` bumps the
 short `docs/release-notes/<version>.md`, so the running build is identifiable from the
 `tg-ws-proxy-rs v…` line in the app log. Debug builds are signed with the committed
 `android/app/debug.keystore`; do not replace it, or the next APK will not install over the
-current one.
+current one. CI signs the release APK with the same key, and `.github/workflows/fork-release.yml`
+publishes a GitHub Release (`v<version>`, release APKs, the version's notes) after a CI run on
+`main` whose Android jobs pass, if that version has no release yet. The user-facing README is the
+Russian fork README; upstream's README lives in `docs/README-upstream.md`.
 
 ## Releases
 
