@@ -106,7 +106,7 @@ short `docs/release-notes/<version>.md`, so the running build is identifiable fr
 `android/app/debug.keystore`; do not replace it, or the next APK will not install over the
 current one. CI signs the release APK with the same key, and `.github/workflows/fork-release.yml`
 publishes a GitHub Release (`v<version>`, release APKs, the version's notes) after a CI run on
-`main` whose Android jobs pass, if that version has no release yet. The user-facing README is the
+`main` whose rust, release-version and Android jobs pass, if that version has no release yet. The user-facing README is the
 Russian fork README; upstream's README lives in `docs/README-upstream.md`.
 
 ## Releases

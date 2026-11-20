@@ -253,11 +253,22 @@ private fun NetCheckRow(result: ProxyViewModel.NetCheck?, checking: Boolean, onC
                 style = MaterialTheme.typography.bodySmall,
             )
             Text(
+                stringResource(R.string.net_russian, pathText(result.russian)),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            val blocked = ProxyViewModel.Failure.BLOCKED
+            val timeout = ProxyViewModel.Failure.TIMEOUT
+            Text(
                 stringResource(
                     when {
                         result.direct.ok * 3 >= result.direct.tries * 2 -> R.string.net_advice_direct
                         result.cloudflare.ok * 3 >= result.cloudflare.tries * 2 -> R.string.net_advice_cf
                         result.direct.ok > 0 -> R.string.net_advice_flaky
+                        listOf(result.direct, result.cloudflare, result.russian).all { it.failure == blocked } ->
+                            R.string.net_advice_app_blocked
+                        result.russian.ok > 0 && result.direct.failure == timeout ->
+                            R.string.net_advice_whitelist
+                        result.russian.ok == 0 -> R.string.net_advice_offline
                         else -> R.string.net_advice_none
                     },
                 ),
@@ -273,7 +284,22 @@ private fun pathText(path: ProxyViewModel.PathResult): String =
     if (path.avgMs != null) {
         stringResource(R.string.net_path_ok, path.ok, path.tries, path.avgMs)
     } else {
-        stringResource(R.string.net_path_dead, path.ok, path.tries)
+        stringResource(
+            R.string.net_path_failed,
+            path.ok,
+            path.tries,
+            stringResource(
+                when (path.failure) {
+                    ProxyViewModel.Failure.TIMEOUT -> R.string.net_fail_timeout
+                    ProxyViewModel.Failure.BLOCKED -> R.string.net_fail_blocked
+                    ProxyViewModel.Failure.NO_ROUTE -> R.string.net_fail_no_route
+                    ProxyViewModel.Failure.REFUSED -> R.string.net_fail_refused
+                    ProxyViewModel.Failure.DNS -> R.string.net_fail_dns
+                    ProxyViewModel.Failure.TLS -> R.string.net_fail_tls
+                    ProxyViewModel.Failure.OTHER, null -> R.string.net_fail_other
+                },
+            ),
+        )
     }
 
 @Composable

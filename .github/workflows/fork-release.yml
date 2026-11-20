@@ -2,7 +2,8 @@
 # and tested a new version on main.
 #
 # CI as a whole never concludes "success" on this fork (the OpenWrt job needs
-# upstream infrastructure), so this gates on the Android jobs themselves. The
+# upstream infrastructure), so this gates on the jobs that matter here: rust,
+# release-version and the Android ones. The
 # release is created with GITHUB_TOKEN, and tags pushed by GITHUB_TOKEN do not
 # trigger other workflows, so upstream's tag-driven release.yml stays idle.
 name: Fork release
@@ -35,7 +36,7 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
-      - name: Check the Android jobs passed and the version is new
+      - name: Check the required jobs passed and the version is new
         id: gate
         shell: bash
         run: |
@@ -86,8 +87,10 @@ jobs:
             echo "\`universal\` if unsure. Signed with the fork's key, installs over earlier builds."
           } > body.md
           # Only the highest version may take "Latest".
-          newest="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' \
-            | sed 's/^v//' | { cat; echo "$version"; } | sort -V | tail -n1)"
+          # A failed lookup must not lose the release: fall back to "latest".
+          tags="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.draft | not) | select(.prerelease | not) | .tag_name' || true)"
+          newest="$(printf '%s\n%s\n' "$tags" "v$version" | sed '/^$/d; s/^v//' | sort -V | tail -n1)"
           latest=true
           [[ "$newest" == "$version" ]] || latest=false
           gh release create "v$version" out/*.apk \

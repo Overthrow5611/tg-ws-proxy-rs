@@ -26,7 +26,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import android.system.ErrnoException
+import android.system.OsConstants
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import javax.net.ssl.SSLException
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URL
@@ -118,10 +123,19 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
 
     // ── Network check ────────────────────────────────────────────────────────
 
-    /** One path's result: handshakes that completed out of [tries], and their mean time. */
-    data class PathResult(val ok: Int, val tries: Int, val avgMs: Long?)
+    /**
+     * Why a probe failed.  The kind is what tells the causes apart: a carrier
+     * whitelist or an IP block drops packets ([TIMEOUT]), a per-app data
+     * restriction (MagicOS, MIUI, Data Saver) is refused locally at once
+     * ([BLOCKED]), DPI on the SNI lets TCP through and kills the handshake ([TLS]).
+     */
+    enum class Failure { TIMEOUT, BLOCKED, NO_ROUTE, REFUSED, DNS, TLS, OTHER }
 
-    data class NetCheck(val direct: PathResult, val cloudflare: PathResult)
+    /** One path's result: handshakes that completed out of [tries], their mean time, and the first failure. */
+    data class PathResult(val ok: Int, val tries: Int, val avgMs: Long?, val failure: Failure?)
+
+    /** [russian] is a whitelisted Russian host: reachable while Telegram and Cloudflare are not means whitelist mode. */
+    data class NetCheck(val direct: PathResult, val cloudflare: PathResult, val russian: PathResult)
 
     private val _netCheck = MutableStateFlow<NetCheck?>(null)
     val netCheck: StateFlow<NetCheck?> = _netCheck.asStateFlow()
@@ -143,6 +157,7 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
                 NetCheck(
                     direct = probe(DIRECT_IP, DIRECT_SNI),
                     cloudflare = probe(CLOUDFLARE_HOST, CLOUDFLARE_HOST),
+                    russian = probe(RUSSIAN_HOST, RUSSIAN_HOST),
                 )
             }
             _netCheck.value = result
@@ -152,11 +167,14 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun probe(host: String, sni: String): PathResult {
         val times = mutableListOf<Long>()
+        var failure: Failure? = null
         repeat(PROBE_TRIES) {
             val started = SystemClock.elapsedRealtime()
+            var connected = false
             try {
                 Socket().use { raw ->
                     raw.connect(InetSocketAddress(host, 443), PROBE_TIMEOUT_MS)
+                    connected = true
                     raw.soTimeout = PROBE_TIMEOUT_MS
                     val factory = SSLSocketFactory.getDefault() as SSLSocketFactory
                     (factory.createSocket(raw, sni, 443, true) as SSLSocket).use { tls ->
@@ -167,10 +185,38 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 times += SystemClock.elapsedRealtime() - started
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                if (failure == null) failure = if (connected) Failure.TLS else classify(e)
             }
         }
-        return PathResult(times.size, PROBE_TRIES, times.takeIf { it.isNotEmpty() }?.average()?.toLong())
+        return PathResult(
+            times.size,
+            PROBE_TRIES,
+            times.takeIf { it.isNotEmpty() }?.average()?.toLong(),
+            failure.takeIf { times.isEmpty() },
+        )
+    }
+
+    private fun classify(e: Throwable): Failure {
+        var cause: Throwable? = e
+        while (cause != null) {
+            if (cause is ErrnoException) {
+                return when (cause.errno) {
+                    OsConstants.EPERM, OsConstants.EACCES -> Failure.BLOCKED
+                    OsConstants.ENETUNREACH, OsConstants.EHOSTUNREACH -> Failure.NO_ROUTE
+                    OsConstants.ECONNREFUSED, OsConstants.ECONNRESET -> Failure.REFUSED
+                    OsConstants.ETIMEDOUT -> Failure.TIMEOUT
+                    else -> Failure.OTHER
+                }
+            }
+            cause = cause.cause
+        }
+        return when (e) {
+            is UnknownHostException -> Failure.DNS
+            is SocketTimeoutException -> Failure.TIMEOUT
+            is SSLException -> Failure.TLS
+            else -> Failure.OTHER
+        }
     }
 
     // ── Update check ─────────────────────────────────────────────────────────
@@ -377,6 +423,7 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         private const val DIRECT_IP = "149.154.167.220"
         private const val DIRECT_SNI = "kws2.web.telegram.org"
         private const val CLOUDFLARE_HOST = "cloudflare.com"
+        private const val RUSSIAN_HOST = "ya.ru"
         private const val PROBE_TRIES = 3
         private const val PROBE_TIMEOUT_MS = 4_000
 

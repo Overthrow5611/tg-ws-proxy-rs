@@ -63,10 +63,21 @@
     <string name="net_direct">Прямое: %1$s</string>
     <string name="net_cloudflare">Cloudflare: %1$s</string>
     <string name="net_path_ok">%1$d/%2$d · %3$d мс</string>
-    <string name="net_path_dead">%1$d/%2$d · нет ответа</string>
     <string name="net_advice_direct">Выбирайте «Прямое».</string>
     <string name="net_advice_cf">Прямое заблокировано: выбирайте «Прямое + Cloudflare».</string>
     <string name="net_advice_flaky">Прямое работает через раз: оставайтесь на «Прямое», возможны короткие подвисания.</string>
     <string name="net_advice_none">Оба пути не отвечают: Telegram в этой сети сейчас сильно режут.</string>
     <string name="backup_stop_first">Остановите прокси перед импортом</string>
+    <string name="net_russian">ya.ru (проверка белых списков): %1$s</string>
+    <string name="net_path_failed">%1$d/%2$d · %3$s</string>
+    <string name="net_fail_timeout">нет ответа</string>
+    <string name="net_fail_blocked">запрещено на телефоне</string>
+    <string name="net_fail_no_route">нет маршрута</string>
+    <string name="net_fail_refused">отклонено</string>
+    <string name="net_fail_dns">не найден (DNS)</string>
+    <string name="net_fail_tls">обрыв на TLS</string>
+    <string name="net_fail_other">ошибка</string>
+    <string name="net_advice_app_blocked">Телефон не пускает приложение в сеть: разрешите мобильные и фоновые данные в настройках приложения.</string>
+    <string name="net_advice_whitelist">Отвечают только российские сервисы: оператор включил белые списки. Их не обойти никаким прокси — ждите или используйте Wi-Fi.</string>
+    <string name="net_advice_offline">В этой сети вообще нет интернета.</string>
 </resources>
