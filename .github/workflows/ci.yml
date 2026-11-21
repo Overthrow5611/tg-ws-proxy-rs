@@ -622,6 +622,9 @@ jobs:
           path: ${{ runner.temp }}/device-logs/**
 
   openwrt:
+    # Fork: the OpenWrt SDK prerequisites fail on the hosted runner here and
+    # this fork ships only the Android app, so the job runs upstream only.
+    if: github.repository == 'valnesfjord/tg-ws-proxy-rs'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

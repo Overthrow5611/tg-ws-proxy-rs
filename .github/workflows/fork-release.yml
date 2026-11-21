@@ -1,9 +1,8 @@
 # Fork only: publish a GitHub Release with the signed APKs once CI has built
 # and tested a new version on main.
 #
-# CI as a whole never concludes "success" on this fork (the OpenWrt job needs
-# upstream infrastructure), so this gates on the jobs that matter here: rust,
-# release-version and the Android ones. The
+# The gate checks the jobs that matter here (rust, release-version and the
+# Android ones) rather than the run's overall result. The
 # release is created with GITHUB_TOKEN, and tags pushed by GITHUB_TOKEN do not
 # trigger other workflows, so upstream's tag-driven release.yml stays idle.
 name: Fork release
