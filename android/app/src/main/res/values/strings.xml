@@ -79,7 +79,7 @@
     <string name="net_fail_dns">DNS failed</string>
     <string name="net_fail_tls">cut during TLS</string>
     <string name="net_fail_other">error</string>
-    <string name="net_advice_app_blocked">The phone seems to keep this app off the network: allow mobile and background data in the app\'s settings and turn off Data Saver. If that is all on, there is simply no internet here.</string>
+    <string name="net_advice_app_blocked">The phone seems to keep this app off the network: allow mobile and background data in the app\'s settings and check that Private DNS (Settings → Network) is not set to a server that fails. If all is fine, there is simply no internet here.</string>
     <string name="net_advice_whitelist">Only Russian services answer: the carrier has turned on whitelist mode. No proxy can get past it; wait or use Wi-Fi.</string>
     <string name="net_advice_offline">No internet on this network at all.</string>
 </resources>

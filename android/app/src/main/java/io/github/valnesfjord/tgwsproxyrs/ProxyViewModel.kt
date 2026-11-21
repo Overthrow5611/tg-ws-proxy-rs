@@ -140,10 +140,11 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * [russian] is a whitelisted Russian host: reachable while Telegram and
      * Cloudflare are not means whitelist mode.  [systemBlocked] is Android's
-     * own word that this app's data is blocked or restricted (Data Saver,
-     * background restriction): a per-app block rarely shows up as EPERM on
-     * the socket — the system resolver refuses the app's lookups instead, so
-     * from the probes alone it looks like DNS failures and timeouts.
+     * own word that this app's network is blocked: a per-app block rarely
+     * shows up as EPERM on the socket — the system resolver refuses the
+     * app's lookups instead, so from the probes alone it looks like DNS
+     * failures and timeouts.  A block on this app cannot let any probe
+     * through, so one success anywhere rules it out.
      */
     data class NetCheck(
         val direct: PathResult,
@@ -152,12 +153,14 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         val systemBlocked: Boolean,
     ) {
         val appBlocked: Boolean
-            get() = systemBlocked ||
+            get() = listOf(direct, cloudflare, russian).all { it.ok == 0 } && (
+                systemBlocked ||
                 listOf(direct, cloudflare, russian).all { it.failure == Failure.BLOCKED } ||
                 (
                     cloudflare.failure == Failure.DNS && russian.failure == Failure.DNS &&
                         direct.failure in setOf(Failure.TIMEOUT, Failure.BLOCKED, Failure.NO_ROUTE)
                     )
+                )
     }
 
     private val _netCheck = MutableStateFlow<NetCheck?>(null)
@@ -220,12 +223,16 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    /**
+     * Not `restrictBackgroundStatus`: Data Saver only cuts background apps, and
+     * both this check (screen on) and the proxy (a foreground service) are
+     * exempt, so it would blame a setting that cannot be the cause.
+     */
     private fun systemBlocksData(): Boolean {
         val cm = getApplication<Application>().getSystemService(ConnectivityManager::class.java) ?: return false
         return runCatching {
             @Suppress("DEPRECATION")
-            val blocked = cm.activeNetworkInfo?.detailedState == NetworkInfo.DetailedState.BLOCKED
-            blocked || cm.restrictBackgroundStatus == ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED
+            cm.activeNetworkInfo?.detailedState == NetworkInfo.DetailedState.BLOCKED
         }.getOrDefault(false)
     }
 
