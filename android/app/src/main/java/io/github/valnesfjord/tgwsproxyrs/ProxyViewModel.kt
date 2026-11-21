@@ -5,6 +5,8 @@ import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkInfo
 import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
@@ -23,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -134,8 +137,28 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
     /** One path's result: handshakes that completed out of [tries], their mean time, and the first failure. */
     data class PathResult(val ok: Int, val tries: Int, val avgMs: Long?, val failure: Failure?)
 
-    /** [russian] is a whitelisted Russian host: reachable while Telegram and Cloudflare are not means whitelist mode. */
-    data class NetCheck(val direct: PathResult, val cloudflare: PathResult, val russian: PathResult)
+    /**
+     * [russian] is a whitelisted Russian host: reachable while Telegram and
+     * Cloudflare are not means whitelist mode.  [systemBlocked] is Android's
+     * own word that this app's data is blocked or restricted (Data Saver,
+     * background restriction): a per-app block rarely shows up as EPERM on
+     * the socket — the system resolver refuses the app's lookups instead, so
+     * from the probes alone it looks like DNS failures and timeouts.
+     */
+    data class NetCheck(
+        val direct: PathResult,
+        val cloudflare: PathResult,
+        val russian: PathResult,
+        val systemBlocked: Boolean,
+    ) {
+        val appBlocked: Boolean
+            get() = systemBlocked ||
+                listOf(direct, cloudflare, russian).all { it.failure == Failure.BLOCKED } ||
+                (
+                    cloudflare.failure == Failure.DNS && russian.failure == Failure.DNS &&
+                        direct.failure in setOf(Failure.TIMEOUT, Failure.BLOCKED, Failure.NO_ROUTE)
+                    )
+    }
 
     private val _netCheck = MutableStateFlow<NetCheck?>(null)
     val netCheck: StateFlow<NetCheck?> = _netCheck.asStateFlow()
@@ -154,11 +177,11 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         _netChecking.value = true
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
-                NetCheck(
-                    direct = probe(DIRECT_IP, DIRECT_SNI),
-                    cloudflare = probe(CLOUDFLARE_HOST, CLOUDFLARE_HOST),
-                    russian = probe(RUSSIAN_HOST, RUSSIAN_HOST),
-                )
+                // In parallel: on a dead network each path waits out its timeouts.
+                val direct = async { probe(DIRECT_IP, DIRECT_SNI) }
+                val cloudflare = async { probe(CLOUDFLARE_HOST, CLOUDFLARE_HOST) }
+                val russian = async { probe(RUSSIAN_HOST, RUSSIAN_HOST) }
+                NetCheck(direct.await(), cloudflare.await(), russian.await(), systemBlocksData())
             }
             _netCheck.value = result
             _netChecking.value = false
@@ -195,6 +218,15 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
             times.takeIf { it.isNotEmpty() }?.average()?.toLong(),
             failure.takeIf { times.isEmpty() },
         )
+    }
+
+    private fun systemBlocksData(): Boolean {
+        val cm = getApplication<Application>().getSystemService(ConnectivityManager::class.java) ?: return false
+        return runCatching {
+            @Suppress("DEPRECATION")
+            val blocked = cm.activeNetworkInfo?.detailedState == NetworkInfo.DetailedState.BLOCKED
+            blocked || cm.restrictBackgroundStatus == ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED
+        }.getOrDefault(false)
     }
 
     private fun classify(e: Throwable): Failure {

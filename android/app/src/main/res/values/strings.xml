@@ -69,7 +69,6 @@
     <string name="net_advice_direct">Use \"Direct\".</string>
     <string name="net_advice_cf">Direct is blocked: use \"Direct + Cloudflare\".</string>
     <string name="net_advice_flaky">Direct works intermittently: keep \"Direct\", expect short stalls.</string>
-    <string name="net_advice_none">Neither path answers: Telegram is heavily blocked on this network right now.</string>
     <string name="backup_stop_first">Stop the proxy before importing</string>
     <string name="net_russian">ya.ru (whitelist check): %1$s</string>
     <string name="net_path_failed">%1$d/%2$d · %3$s</string>
@@ -80,7 +79,7 @@
     <string name="net_fail_dns">DNS failed</string>
     <string name="net_fail_tls">cut during TLS</string>
     <string name="net_fail_other">error</string>
-    <string name="net_advice_app_blocked">The phone does not let this app use the network: allow mobile and background data in the app\'s settings.</string>
+    <string name="net_advice_app_blocked">The phone seems to keep this app off the network: allow mobile and background data in the app\'s settings and turn off Data Saver. If that is all on, there is simply no internet here.</string>
     <string name="net_advice_whitelist">Only Russian services answer: the carrier has turned on whitelist mode. No proxy can get past it; wait or use Wi-Fi.</string>
     <string name="net_advice_offline">No internet on this network at all.</string>
 </resources>
